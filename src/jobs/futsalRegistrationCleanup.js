@@ -23,7 +23,7 @@ async function sendReminderEmail(user, futsal) {
     html: `<p>Dear ${user.fullName},</p>
       <p>Your futsal <b>${futsal.name}</b> registration is pending payment. Please pay the registration fee before ${futsal.registrationFeeStatus.expiryDate.toDateString()} to activate your futsal.</p>
       <p>If you do not complete payment, your futsal registration will expire and will be removed from our system.</p>
-      <p>Thank you,<br/>Futsal App Team</p>`
+      <p>Thank you,<br/>Futsal App Team</p>`,
   });
 }
 
@@ -39,7 +39,7 @@ async function futsalCleanupJob() {
 
   // Remove expired futsals
   if (expiredFutsals.length > 0) {
-    const ids = expiredFutsals.map(f => f._id);
+    const ids = expiredFutsals.map((f) => f._id);
     await Futsal.deleteMany({ _id: { $in: ids } });
     console.log(`Deleted ${ids.length} expired futsal registrations.`);
   }

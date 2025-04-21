@@ -18,7 +18,7 @@ async function verifyKhaltiPayment(token, amount) {
         headers: {
           Authorization: `Key ${KHALTI_SECRET_KEY}`,
         },
-      }
+      },
     );
     return response.data && response.data.idx ? true : false;
   } catch (err) {

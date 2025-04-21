@@ -9,14 +9,9 @@ exports.registerValidator = [
   body('fullName').notEmpty(),
 ];
 
-exports.loginValidator = [
-  body('email').isEmail(),
-  body('password').exists(),
-];
+exports.loginValidator = [body('email').isEmail(), body('password').exists()];
 
-exports.forgotPasswordValidator = [
-  body('email').isEmail(),
-];
+exports.forgotPasswordValidator = [body('email').isEmail()];
 
 exports.resetPasswordValidator = [
   body('token').notEmpty(),

@@ -30,7 +30,19 @@ exports.register = async (req, res) => {
     }
     const user = await User.create({ username, email, password, role, phone, fullName });
     const token = generateToken(user);
-    res.status(201).json({ user: { id: user._id, username: user.username, email: user.email, role: user.role, phone: user.phone, fullName: user.fullName }, token });
+    res
+      .status(201)
+      .json({
+        user: {
+          id: user._id,
+          username: user.username,
+          email: user.email,
+          role: user.role,
+          phone: user.phone,
+          fullName: user.fullName,
+        },
+        token,
+      });
   } catch (err) {
     res.locals.errorMessage = err.message;
     res.status(500).json({ error: err.message || 'Server error' });
@@ -59,7 +71,18 @@ exports.login = async (req, res) => {
     const refreshToken = generateRefreshToken(user);
     // Store refresh token in Session collection
     await Session.create({ user: user._id, token: refreshToken });
-    res.json({ user: { id: user._id, username: user.username, email: user.email, role: user.role, phone: user.phone, fullName: user.fullName }, token, refreshToken });
+    res.json({
+      user: {
+        id: user._id,
+        username: user.username,
+        email: user.email,
+        role: user.role,
+        phone: user.phone,
+        fullName: user.fullName,
+      },
+      token,
+      refreshToken,
+    });
   } catch (err) {
     res.locals.errorMessage = err.message;
     res.status(500).json({ error: err.message || 'Server error' });
@@ -76,7 +99,9 @@ exports.forgotPassword = async (req, res) => {
     const user = await User.findOne({ email });
     if (!user) {
       res.locals.errorMessage = 'If that email is registered, a reset link has been sent.';
-      return res.status(200).json({ message: 'If that email is registered, a reset link has been sent.' });
+      return res
+        .status(200)
+        .json({ message: 'If that email is registered, a reset link has been sent.' });
     }
     // Generate token
     const token = crypto.randomBytes(32).toString('hex');

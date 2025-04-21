@@ -1,23 +1,27 @@
 const express = require('express');
-const { register, login, getProfile, forgotPassword, resetPassword, refreshToken } = require('../controllers/userController');
-const { registerValidator, loginValidator, forgotPasswordValidator, resetPasswordValidator } = require('../validators/userValidators');
+const {
+  register,
+  login,
+  getProfile,
+  forgotPassword,
+  resetPassword,
+  refreshToken,
+} = require('../controllers/userController');
+const {
+  registerValidator,
+  loginValidator,
+  forgotPasswordValidator,
+  resetPasswordValidator,
+} = require('../validators/userValidators');
 const { authenticate } = require('../middlewares/auth');
 
 const router = express.Router();
 
 // Register
-router.post(
-  '/register',
-  registerValidator,
-  register
-);
+router.post('/register', registerValidator, register);
 
 // Login
-router.post(
-  '/login',
-  loginValidator,
-  login
-);
+router.post('/login', loginValidator, login);
 
 // Forgot password
 router.post('/forgot-password', forgotPasswordValidator, forgotPassword);

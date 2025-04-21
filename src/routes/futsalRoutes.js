@@ -19,7 +19,7 @@ router.post(
   authenticate,
   authorize('admin', 'futsalOwner'),
   createFutsalValidator,
-  futsalController.createFutsal
+  futsalController.createFutsal,
 );
 
 // Protected: Update futsal (futsalOwner, admin)
@@ -28,7 +28,7 @@ router.put(
   authenticate,
   authorize('admin', 'futsalOwner'),
   updateFutsalValidator,
-  futsalController.updateFutsal
+  futsalController.updateFutsal,
 );
 
 // Protected: Delete futsal (futsalOwner, admin)
@@ -36,7 +36,7 @@ router.delete(
   '/:id',
   authenticate,
   authorize('admin', 'futsalOwner'),
-  futsalController.deleteFutsal
+  futsalController.deleteFutsal,
 );
 
 // Futsal registration (for futsalOwner)
@@ -44,7 +44,7 @@ router.post(
   '/register',
   authenticate,
   registerFutsalOwnerValidator,
-  futsalController.registerFutsal
+  futsalController.registerFutsal,
 );
 
 // Pay registration fee for futsal
@@ -52,7 +52,7 @@ router.post(
   '/pay-registration',
   authenticate,
   futsalRegistrationPaymentValidator,
-  futsalController.payFutsalRegistration
+  futsalController.payFutsalRegistration,
 );
 
 module.exports = router;

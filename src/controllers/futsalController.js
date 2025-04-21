@@ -13,9 +13,7 @@ exports.getFutsals = async (req, res) => {
     if (district) filter['location.district'] = district;
     const skip = (parseInt(page) - 1) * limit;
     const total = await Futsal.countDocuments(filter);
-    const futsals = await Futsal.find(filter)
-      .skip(skip)
-      .limit(limit);
+    const futsals = await Futsal.find(filter).skip(skip).limit(limit);
     res.json({ total, page: parseInt(page), limit, futsals });
   } catch (err) {
     res.locals.errorMessage = err.message;
@@ -50,7 +48,7 @@ exports.updateFutsal = async (req, res) => {
     const futsal = await Futsal.findOneAndUpdate(
       { _id: req.params.id, owner: req.user._id },
       req.body,
-      { new: true }
+      { new: true },
     );
     if (!futsal) {
       res.locals.errorMessage = 'Futsal not found';
@@ -97,16 +95,8 @@ exports.getFutsalById = async (req, res) => {
 exports.registerFutsal = async (req, res) => {
   try {
     const user = req.user;
-    const {
-      name,
-      location,
-      contactInfo,
-      pricing,
-      amenities,
-      images,
-      description,
-      rules
-    } = req.body;
+    const { name, location, contactInfo, pricing, amenities, images, description, rules } =
+      req.body;
 
     // If user is not futsalOwner, update their role
     if (user.role !== 'futsalOwner' && user.role !== 'admin') {
@@ -130,11 +120,13 @@ exports.registerFutsal = async (req, res) => {
       rules,
       registrationFeeStatus: {
         paid: false,
-        expiryDate
+        expiryDate,
       },
-      isActive: false // Not active until payment
+      isActive: false, // Not active until payment
     });
-    res.status(201).json({ message: 'Futsal registered. Please pay registration fee within 7 days.', futsal });
+    res
+      .status(201)
+      .json({ message: 'Futsal registered. Please pay registration fee within 7 days.', futsal });
   } catch (err) {
     res.status(500).json({ error: err.message || 'Server error' });
   }

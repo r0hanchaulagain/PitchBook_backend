@@ -5,3 +5,4 @@ build/
 .env.*
 logs/
 coverage/
+pnpm-lock.yaml
