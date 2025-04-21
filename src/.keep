@@ -1,0 +1,12 @@
+// Directory structure for src/
+// src/
+//   config/
+//   controllers/
+//   middlewares/
+//   models/
+//   routes/
+//   utils/
+//   services/
+//   logs/
+//   app.js
+//   server.js
