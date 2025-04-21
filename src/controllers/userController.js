@@ -85,11 +85,9 @@ exports.login = async (req, res) => {
     }
     // Check if account is locked
     if (user.lockUntil && user.lockUntil > Date.now()) {
-      return res
-        .status(423)
-        .json({
-          error: 'Account is locked due to too many failed login attempts. Try again later.',
-        });
+      return res.status(423).json({
+        error: 'Account is locked due to too many failed login attempts. Try again later.',
+      });
     }
     const isMatch = await user.comparePassword(password);
     if (!isMatch) {

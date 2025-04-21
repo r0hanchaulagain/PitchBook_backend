@@ -266,12 +266,9 @@ exports.registerFutsal = async (req, res) => {
     const user = req.user;
     // Only futsalOwner or admin can register futsal
     if (user.role !== 'futsalOwner' && user.role !== 'admin') {
-      return res
-        .status(403)
-        .json({
-          error:
-            'Only futsal owners can register a futsal. Please register as a futsal owner first.',
-        });
+      return res.status(403).json({
+        error: 'Only futsal owners can register a futsal. Please register as a futsal owner first.',
+      });
     }
     // Only accept basePrice from request
     const { name, location, contactInfo, basePrice, amenities, images, description, rules } =

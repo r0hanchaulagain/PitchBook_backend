@@ -288,14 +288,12 @@ exports.createBulkBooking = async (req, res) => {
     }
     // Invalidate futsal cache after bulk booking
     await delAsync(`futsal:${futsalId}`);
-    return res
-      .status(201)
-      .json({
-        message: 'Bulk booking created',
-        bookings: createdBookings,
-        invalidBookings,
-        totalPrice,
-      });
+    return res.status(201).json({
+      message: 'Bulk booking created',
+      bookings: createdBookings,
+      invalidBookings,
+      totalPrice,
+    });
   } catch (err) {
     return res.status(500).json({ message: 'Server error', error: err.message });
   }
