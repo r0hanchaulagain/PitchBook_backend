@@ -2,13 +2,12 @@ const jwt = require('jsonwebtoken');
 const config = require('../config');
 const User = require('../models/User');
 
-// Authenticate user by JWT
+// Authenticate user by JWT from HttpOnly cookie
 const authenticate = async (req, res, next) => {
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+  const token = req.cookies.accessToken;
+  if (!token) {
     return res.status(401).json({ error: 'No token provided' });
   }
-  const token = authHeader.split(' ')[1];
   try {
     const decoded = jwt.verify(token, config.jwtSecret);
     req.user = await User.findById(decoded.id).select('-password');

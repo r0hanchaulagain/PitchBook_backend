@@ -52,8 +52,12 @@ seed/seed_env/
 *~
 *.swp
 *.bak
+*.txt
 
+
+# API endpoint list
+api_endpoint_list.txt
+
+# Documentation
 doc.txt
-
-api_docs/
 

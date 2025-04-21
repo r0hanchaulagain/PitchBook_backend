@@ -4,6 +4,11 @@ const morgan = require('morgan');
 const mongoose = require('mongoose');
 const config = require('./config');
 const logger = require('./utils/logger');
+const cookieParser = require('cookie-parser');
+const helmet = require('helmet');
+const mongoSanitize = require('express-mongo-sanitize');
+const xss = require('xss-clean');
+const rateLimit = require('express-rate-limit');
 
 const app = express();
 
@@ -11,6 +16,15 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cors());
+app.use(cookieParser());
+app.use(helmet());
+app.use(mongoSanitize());
+app.use(xss());
+app.use(rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // limit each IP to 100 requests per windowMs
+  message: 'Too many requests from this IP, please try again later.'
+}));
 
 // Monkey-patch res.send to capture response body
 app.use((req, res, next) => {
@@ -57,6 +71,9 @@ app.get('/health', (req, res) => res.status(200).json({ status: 'ok' }));
 // User routes
 app.use(`${API_PREFIX}/users`, require('./routes/userRoutes'));
 
+// Payment routes
+app.use(`${API_PREFIX}/payments`, require('./routes/paymentRoutes'));
+
 // Futsal routes
 app.use(`${API_PREFIX}/futsals`, require('./routes/futsalRoutes'));
 
@@ -64,6 +81,8 @@ app.use(`${API_PREFIX}/futsals`, require('./routes/futsalRoutes'));
 
 // Start futsal registration cleanup cron job
 require('./jobs/futsalRegistrationCleanup');
+// Start notification cleanup cron job
+require('./jobs/notificationCleanupJob');
 
 // Error handler
 app.use((err, req, res, next) => {

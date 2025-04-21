@@ -13,14 +13,24 @@ const UserSchema = new mongoose.Schema({
     required: true,
   },
   profileImage: { type: String },
+  // Only for normal users (optional)
   favoritesFutsal: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Futsal' }],
-  bookingHistory: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Booking' }],
+  bookingHistory: {
+    type: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Booking' }],
+    required: false,
+    default: undefined
+  },
+  // Only for futsal owners (optional)
+  isActiveOwner: { type: Boolean, required: false, default: undefined },
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },
   isActive: { type: Boolean, default: true },
   lastLogin: { type: Date },
   resetPasswordToken: { type: String },
   resetPasswordExpires: { type: Date },
+  // Security: Track login attempts and lockout
+  loginAttempts: { type: Number, default: 0 },
+  lockUntil: { type: Date },
 });
 
 UserSchema.pre('save', async function (next) {

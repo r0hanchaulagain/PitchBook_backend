@@ -4,6 +4,8 @@ const { authenticate, authorize } = require('../middlewares/auth');
 const { createFutsalValidator, updateFutsalValidator } = require('../validators/futsalValidators');
 const { registerFutsalOwnerValidator } = require('../validators/futsalOwnerValidators');
 const { futsalRegistrationPaymentValidator } = require('../validators/paymentValidators');
+const multer = require('multer');
+const upload = multer({ dest: 'uploads/' });
 
 const router = express.Router();
 
@@ -54,5 +56,11 @@ router.post(
   futsalRegistrationPaymentValidator,
   futsalController.payFutsalRegistration,
 );
+
+// Upload futsal image
+router.post('/upload-image', authenticate, upload.single('image'), createFutsalValidator, futsalController.uploadFutsalImage);
+
+// Update futsal image
+router.put('/:id/update-image', authenticate, upload.single('image'), updateFutsalValidator, futsalController.updateFutsalImage);
 
 module.exports = router;

@@ -8,9 +8,9 @@ const FutsalSchema = new mongoose.Schema({
     city: String,
     district: String,
     coordinates: {
-      latitude: Number,
-      longitude: Number,
-    },
+      type: { type: String, enum: ['Point'], default: 'Point' },
+      coordinates: { type: [Number], required: true }, // [longitude, latitude]
+    }
   },
   contactInfo: {
     phone: String,
@@ -27,13 +27,15 @@ const FutsalSchema = new mongoose.Schema({
     sunday: { open: String, close: String },
   },
   pricing: {
-    basePrice: Number,
-    weekendModifier: Number,
-    timeModifiers: {
-      morning: Number,
-      afternoon: Number,
-      evening: Number,
-    },
+    basePrice: { type: Number, required: true },
+    rules: [
+      {
+        day: { type: String, enum: ['monday','tuesday','wednesday','thursday','friday','saturday','sunday','holiday','any'], default: 'any' },
+        start: String, // "HH:MM"
+        end: String,   // "HH:MM"
+        price: Number
+      }
+    ]
   },
   amenities: [String],
   images: [String],
@@ -43,9 +45,18 @@ const FutsalSchema = new mongoose.Schema({
     paid: { type: Boolean, default: false },
     expiryDate: { type: Date },
   },
+  closures: [
+    {
+      date: Date,
+      reason: String
+    }
+  ],
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },
   isActive: { type: Boolean, default: true },
 });
+
+// Add 2dsphere index for geospatial queries
+FutsalSchema.index({ 'location.coordinates': '2dsphere' });
 
 module.exports = mongoose.model('Futsal', FutsalSchema);
