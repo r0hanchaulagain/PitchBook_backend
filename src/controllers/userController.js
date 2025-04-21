@@ -52,19 +52,17 @@ exports.register = async (req, res) => {
       });
     }
 
-    res
-      .status(201)
-      .json({
-        user: {
-          id: user._id,
-          username: user.username,
-          email: user.email,
-          role: user.role,
-          phone: user.phone,
-          fullName: user.fullName,
-        },
-        token,
-      });
+    res.status(201).json({
+      user: {
+        id: user._id,
+        username: user.username,
+        email: user.email,
+        role: user.role,
+        phone: user.phone,
+        fullName: user.fullName,
+      },
+      token,
+    });
   } catch (err) {
     res.locals.errorMessage = err.message;
     res.status(500).json({ error: err.message || 'Server error' });
@@ -87,7 +85,11 @@ exports.login = async (req, res) => {
     }
     // Check if account is locked
     if (user.lockUntil && user.lockUntil > Date.now()) {
-      return res.status(423).json({ error: 'Account is locked due to too many failed login attempts. Try again later.' });
+      return res
+        .status(423)
+        .json({
+          error: 'Account is locked due to too many failed login attempts. Try again later.',
+        });
     }
     const isMatch = await user.comparePassword(password);
     if (!isMatch) {
@@ -112,13 +114,13 @@ exports.login = async (req, res) => {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict',
-      maxAge: 1000 * 60 * 60 * 24 * 7 // 7 days
+      maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
     });
     res.cookie('refreshToken', refreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict',
-      maxAge: 1000 * 60 * 60 * 24 * 30 // 30 days
+      maxAge: 1000 * 60 * 60 * 24 * 30, // 30 days
     });
     res.json({
       user: {
@@ -128,7 +130,7 @@ exports.login = async (req, res) => {
         role: user.role,
         phone: user.phone,
         fullName: user.fullName,
-      }
+      },
     });
   } catch (err) {
     res.locals.errorMessage = err.message;
@@ -216,7 +218,7 @@ exports.refreshToken = async (req, res) => {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict',
-      maxAge: 1000 * 60 * 60 * 24 * 7
+      maxAge: 1000 * 60 * 60 * 24 * 7,
     });
     res.json({ message: 'Token refreshed' });
   } catch (err) {
@@ -251,7 +253,7 @@ exports.scheduleOwnerDeletion = async (req, res) => {
     if (owner.isDeleted) {
       return res.status(400).json({ message: 'Already scheduled for deletion' });
     }
-    owner.scheduledDeletion = new Date(Date.now() + 24*60*60*1000); // 24h from now
+    owner.scheduledDeletion = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24h from now
     owner.isDeleted = false;
     await owner.save();
     // Notify owner
@@ -310,7 +312,7 @@ exports.removeFutsalFromFavourites = async (req, res) => {
     const { futsalId } = req.params;
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ message: 'User not found' });
-    user.favoritesFutsal = user.favoritesFutsal.filter(id => id.toString() !== futsalId);
+    user.favoritesFutsal = user.favoritesFutsal.filter((id) => id.toString() !== futsalId);
     await user.save();
     res.json({ message: 'Futsal removed from favourites', favorites: user.favoritesFutsal });
   } catch (err) {

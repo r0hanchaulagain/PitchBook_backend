@@ -25,10 +25,7 @@ async function fetchHolidaysForBSYear(bsYear) {
   }
 
   // Check cache (refresh every 24 hours)
-  if (
-    holidayCache[bsYear] &&
-    Date.now() - holidayCache[bsYear].fetchedAt < 24 * 60 * 60 * 1000
-  ) {
+  if (holidayCache[bsYear] && Date.now() - holidayCache[bsYear].fetchedAt < 24 * 60 * 60 * 1000) {
     return holidayCache[bsYear].holidays;
   }
 
@@ -37,7 +34,7 @@ async function fetchHolidaysForBSYear(bsYear) {
   const response = await axios.post(
     SARALPATRO_API_URL,
     { query },
-    { headers: { 'Content-Type': 'application/json' } }
+    { headers: { 'Content-Type': 'application/json' } },
   );
 
   const holidays = [];

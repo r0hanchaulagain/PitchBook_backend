@@ -10,7 +10,7 @@ const FutsalSchema = new mongoose.Schema({
     coordinates: {
       type: { type: String, enum: ['Point'], default: 'Point' },
       coordinates: { type: [Number], required: true }, // [longitude, latitude]
-    }
+    },
   },
   contactInfo: {
     phone: String,
@@ -30,12 +30,26 @@ const FutsalSchema = new mongoose.Schema({
     basePrice: { type: Number, required: true },
     rules: [
       {
-        day: { type: String, enum: ['monday','tuesday','wednesday','thursday','friday','saturday','sunday','holiday','any'], default: 'any' },
+        day: {
+          type: String,
+          enum: [
+            'monday',
+            'tuesday',
+            'wednesday',
+            'thursday',
+            'friday',
+            'saturday',
+            'sunday',
+            'holiday',
+            'any',
+          ],
+          default: 'any',
+        },
         start: String, // "HH:MM"
-        end: String,   // "HH:MM"
-        price: Number
-      }
-    ]
+        end: String, // "HH:MM"
+        price: Number,
+      },
+    ],
   },
   amenities: [String],
   images: [String],
@@ -48,8 +62,8 @@ const FutsalSchema = new mongoose.Schema({
   closures: [
     {
       date: Date,
-      reason: String
-    }
+      reason: String,
+    },
   ],
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },

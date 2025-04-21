@@ -58,9 +58,21 @@ router.post(
 );
 
 // Upload futsal image
-router.post('/upload-image', authenticate, upload.single('image'), createFutsalValidator, futsalController.uploadFutsalImage);
+router.post(
+  '/upload-image',
+  authenticate,
+  upload.single('image'),
+  createFutsalValidator,
+  futsalController.uploadFutsalImage,
+);
 
 // Update futsal image
-router.put('/:id/update-image', authenticate, upload.single('image'), updateFutsalValidator, futsalController.updateFutsalImage);
+router.put(
+  '/:id/update-image',
+  authenticate,
+  upload.single('image'),
+  updateFutsalValidator,
+  futsalController.updateFutsalImage,
+);
 
 module.exports = router;

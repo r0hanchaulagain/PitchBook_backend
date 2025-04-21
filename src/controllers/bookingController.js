@@ -17,9 +17,9 @@ async function sendBookingEmail({ to, subject, html }) {
 
 function calculateDurationInMinutes(startTime, endTime) {
   // startTime and endTime are in "HH:MM" format
-  const [sh, sm] = startTime.split(":").map(Number);
-  const [eh, em] = endTime.split(":").map(Number);
-  return (eh * 60 + em) - (sh * 60 + sm);
+  const [sh, sm] = startTime.split(':').map(Number);
+  const [eh, em] = endTime.split(':').map(Number);
+  return eh * 60 + em - (sh * 60 + sm);
 }
 
 function isTimeWithinOperatingHours(startTime, endTime, operatingHours) {
@@ -34,7 +34,8 @@ function getDayOfWeek(date) {
 // POST /api/bookings - Create a new booking
 exports.createBooking = async (req, res) => {
   try {
-    const { futsalId, date, startTime, endTime, bookingType, teamA, teamB, specialRequests } = req.body;
+    const { futsalId, date, startTime, endTime, bookingType, teamA, teamB, specialRequests } =
+      req.body;
     if (!futsalId || !date || !startTime || !endTime || !bookingType || !teamA) {
       return res.status(400).json({ message: 'Missing required fields' });
     }
@@ -49,8 +50,11 @@ exports.createBooking = async (req, res) => {
       const bookingDay = getDayOfWeek(date);
       for (const rule of futsal.pricing.rules) {
         // Match day (or 'any') and time overlap
-        if ((rule.day === bookingDay || rule.day === 'any') &&
-            startTime >= rule.start && endTime <= rule.end) {
+        if (
+          (rule.day === bookingDay || rule.day === 'any') &&
+          startTime >= rule.start &&
+          endTime <= rule.end
+        ) {
           price = rule.price;
         }
       }
@@ -58,7 +62,9 @@ exports.createBooking = async (req, res) => {
     // 2. Duration validation
     const duration = calculateDurationInMinutes(startTime, endTime);
     if (!ALLOWED_DURATIONS.includes(duration)) {
-      return res.status(400).json({ message: 'Invalid booking duration. Allowed: 30, 60, 90, 120 min' });
+      return res
+        .status(400)
+        .json({ message: 'Invalid booking duration. Allowed: 30, 60, 90, 120 min' });
     }
     // 3. Operating hours validation
     const dayOfWeek = getDayOfWeek(date);
@@ -76,9 +82,7 @@ exports.createBooking = async (req, res) => {
       futsal: futsalId,
       date: new Date(date),
       status: { $nin: ['cancelled'] },
-      $or: [
-        { startTime: { $lt: endTime }, endTime: { $gt: startTime } }
-      ]
+      $or: [{ startTime: { $lt: endTime }, endTime: { $gt: startTime } }],
     });
     if (slotConflict) {
       return res.status(409).json({ message: 'Time slot already booked' });
@@ -88,9 +92,7 @@ exports.createBooking = async (req, res) => {
       user: req.user._id,
       date: new Date(date),
       status: { $nin: ['cancelled'] },
-      $or: [
-        { startTime: { $lt: endTime }, endTime: { $gt: startTime } }
-      ]
+      $or: [{ startTime: { $lt: endTime }, endTime: { $gt: startTime } }],
     });
     if (userConflict) {
       return res.status(409).json({ message: 'You already have a booking during this time' });
@@ -113,7 +115,7 @@ exports.createBooking = async (req, res) => {
       bookingType,
       teamA,
       teamB: teamB || (bookingType === 'partial' ? { isOpen: true } : undefined),
-      specialRequests
+      specialRequests,
     });
     await booking.save();
     // Notify futsal owner of booking attempt
@@ -126,7 +128,7 @@ exports.createBooking = async (req, res) => {
       user: req.user._id,
       message: `Your booking for ${futsal.name} on ${date} from ${startTime} to ${endTime} has been created.`,
       type: 'booking_created',
-      meta: { booking: booking._id }
+      meta: { booking: booking._id },
     });
     return res.status(201).json({ message: 'Booking created', booking });
   } catch (err) {
@@ -137,7 +139,18 @@ exports.createBooking = async (req, res) => {
 // POST /api/bookings/bulk - Create bulk booking
 exports.createBulkBooking = async (req, res) => {
   try {
-    const { futsalId, startDate, endDate, startTime, endTime, daysOfWeek, bookingType, teamA, teamB, specialRequests } = req.body;
+    const {
+      futsalId,
+      startDate,
+      endDate,
+      startTime,
+      endTime,
+      daysOfWeek,
+      bookingType,
+      teamA,
+      teamB,
+      specialRequests,
+    } = req.body;
     if (!futsalId || !startDate || !endDate || !startTime || !endTime || !daysOfWeek || !teamA) {
       return res.status(400).json({ message: 'Missing required fields' });
     }
@@ -194,9 +207,7 @@ exports.createBulkBooking = async (req, res) => {
         futsal: futsalId,
         date: date,
         status: { $nin: ['cancelled'] },
-        $or: [
-          { startTime: { $lt: endTime }, endTime: { $gt: startTime } }
-        ]
+        $or: [{ startTime: { $lt: endTime }, endTime: { $gt: startTime } }],
       });
       if (slotConflict) {
         invalidBookings.push({ date, reason: 'Time slot already booked' });
@@ -207,9 +218,7 @@ exports.createBulkBooking = async (req, res) => {
         user: req.user._id,
         date: date,
         status: { $nin: ['cancelled'] },
-        $or: [
-          { startTime: { $lt: endTime }, endTime: { $gt: startTime } }
-        ]
+        $or: [{ startTime: { $lt: endTime }, endTime: { $gt: startTime } }],
       });
       if (userConflict) {
         invalidBookings.push({ date, reason: 'User already has a booking during this time' });
@@ -233,8 +242,11 @@ exports.createBulkBooking = async (req, res) => {
       const bookingDay = getDayOfWeek(validBookings[0]);
       for (const rule of futsal.pricing.rules) {
         // Match day (or 'any') and time overlap
-        if ((rule.day === bookingDay || rule.day === 'any') &&
-            startTime >= rule.start && endTime <= rule.end) {
+        if (
+          (rule.day === bookingDay || rule.day === 'any') &&
+          startTime >= rule.start &&
+          endTime <= rule.end
+        ) {
           pricePerBooking = rule.price;
         }
       }
@@ -257,7 +269,7 @@ exports.createBulkBooking = async (req, res) => {
         teamA,
         teamB: teamB || (bookingType === 'partial' ? { isOpen: true } : undefined),
         specialRequests,
-        isBulkBooking: true
+        isBulkBooking: true,
       });
       await booking.save();
       createdBookings.push(booking);
@@ -271,12 +283,19 @@ exports.createBulkBooking = async (req, res) => {
         user: req.user._id,
         message: `Your booking for ${futsal.name} on ${date.toDateString()} from ${startTime} to ${endTime} has been created.`,
         type: 'booking_created',
-        meta: { booking: booking._id }
+        meta: { booking: booking._id },
       });
     }
     // Invalidate futsal cache after bulk booking
     await delAsync(`futsal:${futsalId}`);
-    return res.status(201).json({ message: 'Bulk booking created', bookings: createdBookings, invalidBookings, totalPrice });
+    return res
+      .status(201)
+      .json({
+        message: 'Bulk booking created',
+        bookings: createdBookings,
+        invalidBookings,
+        totalPrice,
+      });
   } catch (err) {
     return res.status(500).json({ message: 'Server error', error: err.message });
   }
@@ -290,7 +309,10 @@ exports.bulkBookingPayment = async (req, res) => {
       return res.status(400).json({ message: 'Missing required fields' });
     }
     // Fetch all bookings
-    const bookings = await Booking.find({ _id: { $in: bookingIds }, paymentStatus: { $ne: 'paid' } });
+    const bookings = await Booking.find({
+      _id: { $in: bookingIds },
+      paymentStatus: { $ne: 'paid' },
+    });
     if (bookings.length !== bookingIds.length) {
       return res.status(400).json({ message: 'Some bookings not found or already paid' });
     }
@@ -311,7 +333,7 @@ exports.bulkBookingPayment = async (req, res) => {
         user: booking.user,
         message: `Your payment for booking at ${booking.futsal} on ${booking.date.toDateString()} is successful!`,
         type: 'booking_payment',
-        meta: { booking: booking._id }
+        meta: { booking: booking._id },
       });
     }
     res.status(200).json({ message: 'Bulk payment successful', bookingIds });
@@ -348,17 +370,12 @@ exports.getMyBookings = async (req, res) => {
 // GET /api/bookings/:id - Get booking by ID
 exports.getBookingById = async (req, res) => {
   try {
-    const booking = await Booking.findById(req.params.id)
-      .populate('futsal')
-      .populate('user');
+    const booking = await Booking.findById(req.params.id).populate('futsal').populate('user');
     if (!booking) {
       return res.status(404).json({ message: 'Booking not found' });
     }
     // Only allow admin or owner of booking to view
-    if (
-      req.user.role !== 'admin' &&
-      booking.user._id.toString() !== req.user._id.toString()
-    ) {
+    if (req.user.role !== 'admin' && booking.user._id.toString() !== req.user._id.toString()) {
       return res.status(403).json({ message: 'Not authorized' });
     }
     res.status(200).json({ booking });
@@ -374,10 +391,7 @@ exports.updateBooking = async (req, res) => {
     if (!booking) {
       return res.status(404).json({ message: 'Booking not found' });
     }
-    if (
-      req.user.role !== 'admin' &&
-      booking.user.toString() !== req.user._id.toString()
-    ) {
+    if (req.user.role !== 'admin' && booking.user.toString() !== req.user._id.toString()) {
       return res.status(403).json({ message: 'Not authorized' });
     }
     // Only allow updating specialRequests for simplicity
@@ -399,10 +413,7 @@ exports.cancelBooking = async (req, res) => {
     if (!booking) {
       return res.status(404).json({ message: 'Booking not found' });
     }
-    if (
-      req.user.role !== 'admin' &&
-      booking.user.toString() !== req.user._id.toString()
-    ) {
+    if (req.user.role !== 'admin' && booking.user.toString() !== req.user._id.toString()) {
       return res.status(403).json({ message: 'Not authorized' });
     }
     if (booking.status === 'cancelled') {
@@ -420,7 +431,11 @@ exports.cancelBooking = async (req, res) => {
     // Notify futsal owner
     if (booking.futsal.owner && booking.futsal.owner.email) {
       const html = `<p>A booking for your futsal <b>${booking.futsal.name}</b> on ${booking.date.toDateString()} from ${booking.startTime} to ${booking.endTime} has been cancelled.</p>`;
-      await sendBookingEmail({ to: booking.futsal.owner.email, subject: 'Booking Cancelled', html });
+      await sendBookingEmail({
+        to: booking.futsal.owner.email,
+        subject: 'Booking Cancelled',
+        html,
+      });
     }
     res.status(200).json({ message: 'Booking cancelled', booking });
   } catch (err) {
@@ -481,7 +496,7 @@ exports.processBookingPayment = async (req, res) => {
     booking.paymentDetails = {
       transactionId: token,
       paymentMethod: 'khalti',
-      paymentDate: new Date()
+      paymentDate: new Date(),
     };
     booking.updatedAt = new Date();
     await booking.save();
@@ -495,14 +510,18 @@ exports.processBookingPayment = async (req, res) => {
     // Notify futsal owner
     if (booking.futsal.owner && booking.futsal.owner.email) {
       const html = `<p>A booking for your futsal <b>${booking.futsal.name}</b> on ${booking.date.toDateString()} from ${booking.startTime} to ${booking.endTime} has been confirmed and paid.</p>`;
-      await sendBookingEmail({ to: booking.futsal.owner.email, subject: 'Booking Confirmed', html });
+      await sendBookingEmail({
+        to: booking.futsal.owner.email,
+        subject: 'Booking Confirmed',
+        html,
+      });
     }
     // --- Notification: Booking payment successful ---
     await createNotification({
       user: booking.user,
       message: `Your payment for booking at ${booking.futsal.name} on ${booking.date.toDateString()} is successful!`,
       type: 'booking_payment',
-      meta: { booking: booking._id }
+      meta: { booking: booking._id },
     });
     // Invalidate futsal cache
     await delAsync(`futsal:${booking.futsal}`);
@@ -530,9 +549,7 @@ exports.checkFutsalAvailability = async (req, res) => {
         futsal: futsalId,
         date: new Date(date),
         status: { $nin: ['cancelled'] },
-        $or: [
-          { startTime: { $lt: endTime }, endTime: { $gt: startTime } }
-        ]
+        $or: [{ startTime: { $lt: endTime }, endTime: { $gt: startTime } }],
       });
       if (slotConflict) {
         return res.status(200).json({ available: false, message: 'Slot not available' });
@@ -543,7 +560,7 @@ exports.checkFutsalAvailability = async (req, res) => {
     const bookings = await Booking.find({
       futsal: futsalId,
       date: new Date(date),
-      status: { $nin: ['cancelled'] }
+      status: { $nin: ['cancelled'] },
     });
     res.status(200).json({ bookings });
   } catch (err) {
@@ -568,8 +585,11 @@ exports.initiateBookingAsTeamA = async (req, res) => {
     if (futsal.pricing.rules && Array.isArray(futsal.pricing.rules)) {
       const bookingDay = getDayOfWeek(date);
       for (const rule of futsal.pricing.rules) {
-        if ((rule.day === bookingDay || rule.day === 'any') &&
-            startTime >= rule.start && endTime <= rule.end) {
+        if (
+          (rule.day === bookingDay || rule.day === 'any') &&
+          startTime >= rule.start &&
+          endTime <= rule.end
+        ) {
           price = rule.price;
         }
       }
@@ -577,7 +597,9 @@ exports.initiateBookingAsTeamA = async (req, res) => {
     // Duration validation
     const duration = calculateDurationInMinutes(startTime, endTime);
     if (!ALLOWED_DURATIONS.includes(duration)) {
-      return res.status(400).json({ message: 'Invalid booking duration. Allowed: 30, 60, 90, 120 min' });
+      return res
+        .status(400)
+        .json({ message: 'Invalid booking duration. Allowed: 30, 60, 90, 120 min' });
     }
     // Check slot availability
     const slotConflict = await Booking.findOne({
@@ -585,7 +607,7 @@ exports.initiateBookingAsTeamA = async (req, res) => {
       date: new Date(date),
       startTime,
       endTime,
-      status: { $nin: ['cancelled'] }
+      status: { $nin: ['cancelled'] },
     });
     if (slotConflict) {
       return res.status(409).json({ message: 'Slot already booked' });

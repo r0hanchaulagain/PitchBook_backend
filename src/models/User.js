@@ -18,7 +18,7 @@ const UserSchema = new mongoose.Schema({
   bookingHistory: {
     type: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Booking' }],
     required: false,
-    default: undefined
+    default: undefined,
   },
   // Only for futsal owners (optional)
   isActiveOwner: { type: Boolean, required: false, default: undefined },

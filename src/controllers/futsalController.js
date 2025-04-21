@@ -11,8 +11,13 @@ const { uploadImage, deleteImage } = require('../utils/cloudinary');
 // Helper: Calculate average rating for a futsal
 async function getAverageRating(futsalId) {
   const result = await Review.aggregate([
-    { $match: { futsal: typeof futsalId === 'string' ? require('mongoose').Types.ObjectId(futsalId) : futsalId } },
-    { $group: { _id: null, avg: { $avg: "$rating" }, count: { $sum: 1 } } }
+    {
+      $match: {
+        futsal:
+          typeof futsalId === 'string' ? require('mongoose').Types.ObjectId(futsalId) : futsalId,
+      },
+    },
+    { $group: { _id: null, avg: { $avg: '$rating' }, count: { $sum: 1 } } },
   ]);
   return result[0] ? { avg: result[0].avg, count: result[0].count } : { avg: null, count: 0 };
 }
@@ -32,11 +37,14 @@ exports.getFutsals = async (req, res) => {
     let userCoords = null;
     if (lng && lat) {
       userCoords = [parseFloat(lng), parseFloat(lat)];
-      futsals = await Futsal.find(filter).near('location.coordinates', {
-        center: { type: 'Point', coordinates: userCoords },
-        maxDistance: 10000, // 10km, adjust as needed
-        spherical: true
-      }).skip(skip).limit(limit);
+      futsals = await Futsal.find(filter)
+        .near('location.coordinates', {
+          center: { type: 'Point', coordinates: userCoords },
+          maxDistance: 10000, // 10km, adjust as needed
+          spherical: true,
+        })
+        .skip(skip)
+        .limit(limit);
     } else {
       futsals = await Futsal.find(filter).skip(skip).limit(limit);
     }
@@ -55,51 +63,64 @@ exports.getFutsals = async (req, res) => {
     else if (hour >= 12 && hour < 18) timeModifier = 0.1;
     else if (hour >= 18 && hour < 22) timeModifier = 0.2;
     // --- Fetch and apply rating modifier ---
-    const futsalsWithDynamicPrice = await Promise.all(futsals.map(async futsal => {
-      const basePrice = futsal.pricing.basePrice || 0;
-      let dynamicPrice = basePrice;
-      dynamicPrice += basePrice * timeModifier;
-      dynamicPrice += basePrice * holidayModifier;
-      // --- Distance Modifier ---
-      let distance = null;
-      let distanceModifier = 0;
-      if (userCoords && futsal.location && futsal.location.coordinates && Array.isArray(futsal.location.coordinates.coordinates)) {
-        const [flng, flat] = futsal.location.coordinates.coordinates;
-        const toRad = deg => deg * Math.PI / 180;
-        const R = 6371e3; // meters
-        const dLat = toRad(flat - parseFloat(lat));
-        const dLng = toRad(flng - parseFloat(lng));
-        const a = Math.sin(dLat/2)**2 + Math.cos(toRad(parseFloat(lat))) * Math.cos(toRad(flat)) * Math.sin(dLng/2)**2;
-        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-        distance = R * c;
-        if (distance > 10000) distanceModifier = 0.2;
-        else if (distance > 5000) distanceModifier = 0.1;
-        dynamicPrice += basePrice * distanceModifier;
-      }
-      // --- Rating Modifier ---
-      const { avg: avgRating, count: reviewCount } = await getAverageRating(futsal._id);
-      let ratingModifier = 0;
-      if (avgRating !== null) {
-        if (avgRating >= 4.5) ratingModifier = 0.10; // +10% for top-rated
-        else if (avgRating >= 4.0) ratingModifier = 0.05; // +5%
-        else if (avgRating <= 2.5) ratingModifier = -0.10; // -10% for low-rated
-      }
-      dynamicPrice += basePrice * ratingModifier;
-      return {
-        ...futsal.toObject(),
-        pricing: {
-          ...futsal.pricing,
-          dynamicPrice: Math.round(dynamicPrice),
-          distance: distance ? Math.round(distance) : undefined,
-          distanceModifier,
-          ratingModifier,
-          avgRating,
-          reviewCount
+    const futsalsWithDynamicPrice = await Promise.all(
+      futsals.map(async (futsal) => {
+        const basePrice = futsal.pricing.basePrice || 0;
+        let dynamicPrice = basePrice;
+        dynamicPrice += basePrice * timeModifier;
+        dynamicPrice += basePrice * holidayModifier;
+        // --- Distance Modifier ---
+        let distance = null;
+        let distanceModifier = 0;
+        if (
+          userCoords &&
+          futsal.location &&
+          futsal.location.coordinates &&
+          Array.isArray(futsal.location.coordinates.coordinates)
+        ) {
+          const [flng, flat] = futsal.location.coordinates.coordinates;
+          const toRad = (deg) => (deg * Math.PI) / 180;
+          const R = 6371e3; // meters
+          const dLat = toRad(flat - parseFloat(lat));
+          const dLng = toRad(flng - parseFloat(lng));
+          const a =
+            Math.sin(dLat / 2) ** 2 +
+            Math.cos(toRad(parseFloat(lat))) * Math.cos(toRad(flat)) * Math.sin(dLng / 2) ** 2;
+          const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+          distance = R * c;
+          if (distance > 10000) distanceModifier = 0.2;
+          else if (distance > 5000) distanceModifier = 0.1;
+          dynamicPrice += basePrice * distanceModifier;
         }
-      };
-    }));
+        // --- Rating Modifier ---
+        const { avg: avgRating, count: reviewCount } = await getAverageRating(futsal._id);
+        let ratingModifier = 0;
+        if (avgRating !== null) {
+          if (avgRating >= 4.5)
+            ratingModifier = 0.1; // +10% for top-rated
+          else if (avgRating >= 4.0)
+            ratingModifier = 0.05; // +5%
+          else if (avgRating <= 2.5) ratingModifier = -0.1; // -10% for low-rated
+        }
+        dynamicPrice += basePrice * ratingModifier;
+        return {
+          ...futsal.toObject(),
+          pricing: {
+            ...futsal.pricing,
+            dynamicPrice: Math.round(dynamicPrice),
+            distance: distance ? Math.round(distance) : undefined,
+            distanceModifier,
+            ratingModifier,
+            avgRating,
+            reviewCount,
+          },
+        };
+      }),
+    );
     // --- Filter by minRating if provided ---
-    const filteredFutsals = minRating ? futsalsWithDynamicPrice.filter(f => (f.pricing.avgRating || 0) >= parseFloat(minRating)) : futsalsWithDynamicPrice;
+    const filteredFutsals = minRating
+      ? futsalsWithDynamicPrice.filter((f) => (f.pricing.avgRating || 0) >= parseFloat(minRating))
+      : futsalsWithDynamicPrice;
     res.json({ total, page: parseInt(page), limit, futsals: filteredFutsals });
   } catch (err) {
     res.locals.errorMessage = err.message;
@@ -214,9 +235,11 @@ exports.getFutsalById = async (req, res) => {
     const { avg: avgRating, count: reviewCount } = await getAverageRating(futsal._id);
     let ratingModifier = 0;
     if (typeof avgRating === 'number') {
-      if (avgRating >= 4.5) ratingModifier = 0.10; // +10% for top-rated
-      else if (avgRating >= 4.0) ratingModifier = 0.05; // +5%
-      else if (avgRating <= 2.5) ratingModifier = -0.10; // -10% for low-rated
+      if (avgRating >= 4.5)
+        ratingModifier = 0.1; // +10% for top-rated
+      else if (avgRating >= 4.0)
+        ratingModifier = 0.05; // +5%
+      else if (avgRating <= 2.5) ratingModifier = -0.1; // -10% for low-rated
     }
     dynamicPrice += basePrice * ratingModifier;
     const response = {
@@ -226,8 +249,8 @@ exports.getFutsalById = async (req, res) => {
         dynamicPrice: Math.round(dynamicPrice),
         ratingModifier,
         avgRating,
-        reviewCount
-      }
+        reviewCount,
+      },
     };
     await setAsync(cacheKey, JSON.stringify(response), 'EX', 60 * 5); // Cache for 5 min
     res.json(response);
@@ -243,10 +266,16 @@ exports.registerFutsal = async (req, res) => {
     const user = req.user;
     // Only futsalOwner or admin can register futsal
     if (user.role !== 'futsalOwner' && user.role !== 'admin') {
-      return res.status(403).json({ error: 'Only futsal owners can register a futsal. Please register as a futsal owner first.' });
+      return res
+        .status(403)
+        .json({
+          error:
+            'Only futsal owners can register a futsal. Please register as a futsal owner first.',
+        });
     }
     // Only accept basePrice from request
-    const { name, location, contactInfo, basePrice, amenities, images, description, rules } = req.body;
+    const { name, location, contactInfo, basePrice, amenities, images, description, rules } =
+      req.body;
 
     // Set expiryDate to 7 days from now
     const expiryDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
@@ -263,7 +292,7 @@ exports.registerFutsal = async (req, res) => {
       description,
       rules,
       registrationFeeStatus: { paid: false, expiryDate },
-      isActive: false
+      isActive: false,
     });
 
     // Fetch futsal owner email
@@ -277,7 +306,9 @@ exports.registerFutsal = async (req, res) => {
       await sendMail({ to: owner.email, subject, html });
     }
 
-    res.status(201).json({ message: 'Futsal registered. Please pay registration fee within 7 days.', futsal });
+    res
+      .status(201)
+      .json({ message: 'Futsal registered. Please pay registration fee within 7 days.', futsal });
   } catch (err) {
     res.status(500).json({ error: err.message || 'Server error' });
   }
@@ -334,10 +365,10 @@ exports.getNearbyFutsals = async (req, res) => {
       'location.coordinates': {
         $near: {
           $geometry: { type: 'Point', coordinates: [parseFloat(lng), parseFloat(lat)] },
-          $maxDistance: parseInt(radius)
-        }
+          $maxDistance: parseInt(radius),
+        },
       },
-      isActive: true
+      isActive: true,
     }).limit(20);
     res.json({ futsals });
   } catch (err) {

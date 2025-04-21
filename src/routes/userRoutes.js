@@ -46,10 +46,22 @@ router.post('/refresh-token', refreshToken);
 router.get('/me', authenticate, getProfile);
 
 // Upload profile image
-router.post('/upload-profile-image', authenticate, upload.single('image'), registerValidator, uploadProfileImage);
+router.post(
+  '/upload-profile-image',
+  authenticate,
+  upload.single('image'),
+  registerValidator,
+  uploadProfileImage,
+);
 
 // Update profile image
-router.put('/update-profile-image', authenticate, upload.single('image'), registerValidator, updateProfileImage);
+router.put(
+  '/update-profile-image',
+  authenticate,
+  upload.single('image'),
+  registerValidator,
+  updateProfileImage,
+);
 
 // Permanently delete a user and their profile image
 router.delete('/:id', authenticate, deleteUserValidator, deleteUser);

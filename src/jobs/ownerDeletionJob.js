@@ -12,14 +12,19 @@ cron.schedule('0 * * * *', async () => {
   const owners = await User.find({
     role: 'futsalOwner',
     scheduledDeletion: { $lte: now },
-    isDeleted: false
+    isDeleted: false,
   });
   for (const owner of owners) {
     // Find futsals owned by this owner
     const futsals = await Futsal.find({ owner: owner._id });
     // Find users with active bookings for these futsals
-    const futsalIds = futsals.map(f => f._id);
-    const bookings = await Booking.find({ futsal: { $in: futsalIds }, status: { $in: ['pending', 'confirmed'] } }).populate('user').populate('futsal');
+    const futsalIds = futsals.map((f) => f._id);
+    const bookings = await Booking.find({
+      futsal: { $in: futsalIds },
+      status: { $in: ['pending', 'confirmed'] },
+    })
+      .populate('user')
+      .populate('futsal');
     // Notify users
     for (const booking of bookings) {
       if (booking.user && booking.user.email) {

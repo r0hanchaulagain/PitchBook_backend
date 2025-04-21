@@ -32,7 +32,10 @@ exports.verifyFutsalRegistrationPayment = async (req, res) => {
         await sendMail({
           to: owner.email,
           subject: 'Futsal Payment Successful',
-          html: futsalPaymentSuccessTemplate({ ownerName: owner.fullName || owner.username, futsalName: futsal.name })
+          html: futsalPaymentSuccessTemplate({
+            ownerName: owner.fullName || owner.username,
+            futsalName: futsal.name,
+          }),
         });
       }
     }

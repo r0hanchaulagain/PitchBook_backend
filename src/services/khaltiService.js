@@ -10,16 +10,12 @@ const KHALTI_LOOKUP_URL = 'https://a.khalti.com/api/v2/epayment/lookup/';
  */
 async function verifyKhaltiPayment(pidx) {
   try {
-    const response = await axios.post(
-      KHALTI_LOOKUP_URL,
-      `pidx=${pidx}`,
-      {
-        headers: {
-          Authorization: `Key ${KHALTI_SECRET_KEY}`,
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
+    const response = await axios.post(KHALTI_LOOKUP_URL, `pidx=${pidx}`, {
+      headers: {
+        Authorization: `Key ${KHALTI_SECRET_KEY}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
       },
-    );
+    });
     return response.data && response.data.status === 'Completed';
   } catch (err) {
     return false;

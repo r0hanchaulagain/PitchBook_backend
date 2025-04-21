@@ -13,7 +13,7 @@ exports.createReview = async (req, res) => {
     const booking = await Booking.findOne({
       futsal: futsalId,
       user: req.user._id,
-      status: { $in: ['completed', 'confirmed'] }
+      status: { $in: ['completed', 'confirmed'] },
     });
     if (!booking) {
       return res.status(403).json({ message: 'You can only review futsals you have booked.' });
@@ -27,7 +27,7 @@ exports.createReview = async (req, res) => {
       futsal: futsalId,
       user: req.user._id,
       rating,
-      feedback
+      feedback,
     });
     res.status(201).json(review);
   } catch (err) {

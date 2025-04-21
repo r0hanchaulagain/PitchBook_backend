@@ -19,6 +19,4 @@ exports.resetPasswordValidator = [
   body('password').isLength({ min: 6 }),
 ];
 
-exports.deleteUserValidator = [
-  body('id').notEmpty().isString().withMessage('User ID is required'),
-];
+exports.deleteUserValidator = [body('id').notEmpty().isString().withMessage('User ID is required')];

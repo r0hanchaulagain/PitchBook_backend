@@ -55,7 +55,7 @@ exports.closeFutsal = async (req, res) => {
     const futsal = await Futsal.findById(id);
     if (!futsal) return res.status(404).json({ message: 'Futsal not found' });
     if (!futsal.closures) futsal.closures = [];
-    dates.forEach(date => {
+    dates.forEach((date) => {
       futsal.closures.push({ date: new Date(date), reason });
     });
     await futsal.save();
