@@ -7,6 +7,8 @@ const BookingSchema = new mongoose.Schema({
   startTime: { type: String, required: true },
   endTime: { type: String, required: true },
   price: { type: Number, required: true },
+  teamA: { type: Boolean, required: true },
+  teamB: { type: Boolean, required: true },
   status: {
     type: String,
     enum: ['pending', 'confirmed', 'cancelled', 'completed'],

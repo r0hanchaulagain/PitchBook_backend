@@ -1,0 +1,2215 @@
+===== File: /home/d1e/Playground/futsal/backend/src/models/.keep =====
+
+
+
+
+===== File: /home/d1e/Playground/futsal/backend/src/models/Review.js =====
+const mongoose = require('mongoose');
+
+const ReviewSchema = new mongoose.Schema({
+  futsal: { type: mongoose.Schema.Types.ObjectId, ref: 'Futsal', required: true },
+  user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  rating: { type: Number, min: 1, max: 5, required: true },
+  feedback: { type: String, required: true },
+  createdAt: { type: Date, default: Date.now },
+});
+
+module.exports = mongoose.model('Review', ReviewSchema);
+
+
+
+===== File: /home/d1e/Playground/futsal/backend/src/models/Audit.js =====
+const mongoose = require('mongoose');
+
+const AuditSchema = new mongoose.Schema({
+  action: { type: String, required: true },
+  user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  details: { type: Object },
+  createdAt: { type: Date, default: Date.now },
+});
+
+module.exports = mongoose.model('Audit', AuditSchema);
+
+
+
+===== File: /home/d1e/Playground/futsal/backend/src/models/Booking.js =====
+const mongoose = require('mongoose');
+
+const BookingSchema = new mongoose.Schema({
+  user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  futsal: { type: mongoose.Schema.Types.ObjectId, ref: 'Futsal', required: true },
+  date: { type: Date, required: true },
+  startTime: { type: String, required: true },
+  endTime: { type: String, required: true },
+  price: { type: Number, required: true },
+  status: {
+    type: String,
+    enum: ['pending', 'confirmed', 'cancelled', 'completed'],
+    default: 'pending',
+  },
+  createdAt: { type: Date, default: Date.now },
+  updatedAt: { type: Date, default: Date.now },
+});
+
+module.exports = mongoose.model('Booking', BookingSchema);
+
+
+
+===== File: /home/d1e/Playground/futsal/backend/src/models/Payment.js =====
+const mongoose = require('mongoose');
+
+const PaymentSchema = new mongoose.Schema({
+  booking: { type: mongoose.Schema.Types.ObjectId, ref: 'Booking', required: true },
+  user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  type: {
+    type: String,
+    enum: ['booking', 'registration', 'refund', 'payout'],
+    required: true,
+  },
+  amount: { type: Number, required: true },
+  currency: { type: String, default: 'NPR' },
+  status: {
+    type: String,
+    enum: ['pending', 'completed', 'failed'],
+    default: 'pending',
+  },
+  transactionId: { type: String },
+  paymentMethod: { type: String },
+  paidAt: { type: Date },
+  createdAt: { type: Date, default: Date.now },
+  updatedAt: { type: Date, default: Date.now },
+});
+
+module.exports = mongoose.model('Payment', PaymentSchema);
+
+
+
+===== File: /home/d1e/Playground/futsal/backend/src/models/User.js =====
+const mongoose = require('mongoose');
+const bcrypt = require('bcryptjs');
+
+const UserSchema = new mongoose.Schema({
+  fullName: { type: String, required: true },
+  email: { type: String, required: true, unique: true },
+  phone: { type: String, unique: true },
+  password: { type: String, required: true },
+  role: {
+    type: String,
+    enum: ['admin', 'user', 'futsalOwner'],
+    required: true,
+  },
+  profileImage: { type: String },
+  // Only for normal users (optional)
+  favoritesFutsal: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Futsal' }],
+  bookingHistory: {
+    type: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Booking' }],
+    required: false,
+    default: undefined,
+  },
+  // Only for futsal owners (optional)
+  isActiveOwner: { type: Boolean, required: false, default: undefined },
+  createdAt: { type: Date, default: Date.now },
+  updatedAt: { type: Date, default: Date.now },
+  isActive: { type: Boolean, default: true },
+  lastLogin: { type: Date },
+  resetPasswordToken: { type: String },
+  resetPasswordExpires: { type: Date },
+  // Security: Track login attempts and lockout
+  loginAttempts: { type: Number, default: 0 },
+  lockUntil: { type: Date },
+});
+
+UserSchema.pre('save', async function (next) {
+  if (!this.isModified('password')) return next();
+  this.password = await bcrypt.hash(this.password, 10);
+  next();
+});
+
+UserSchema.methods.comparePassword = function (candidatePassword) {
+  return bcrypt.compare(candidatePassword, this.password);
+};
+
+module.exports = mongoose.model('User', UserSchema);
+
+
+
+===== File: /home/d1e/Playground/futsal/backend/src/models/Notification.js =====
+const mongoose = require('mongoose');
+
+const NotificationSchema = new mongoose.Schema({
+  user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  message: { type: String, required: true },
+  type: { type: String },
+  isRead: { type: Boolean, default: false },
+  createdAt: { type: Date, default: Date.now },
+});
+
+module.exports = mongoose.model('Notification', NotificationSchema);
+
+
+
+===== File: /home/d1e/Playground/futsal/backend/src/models/Session.js =====
+const mongoose = require('mongoose');
+
+const SessionSchema = new mongoose.Schema({
+  user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  token: { type: String, required: true },
+  createdAt: { type: Date, default: Date.now, expires: '7d' }, // expires in 7 days
+});
+
+module.exports = mongoose.model('Session', SessionSchema);
+
+
+
+===== File: /home/d1e/Playground/futsal/backend/src/models/Futsal.js =====
+const mongoose = require('mongoose');
+
+const FutsalSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  owner: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  location: {
+    address: String,
+    city: String,
+    district: String,
+    coordinates: {
+      type: { type: String, enum: ['Point'], default: 'Point' },
+      coordinates: { type: [Number], required: true }, // [longitude, latitude]
+    },
+  },
+  contactInfo: {
+    phone: String,
+    email: String,
+    website: String,
+  },
+  operatingHours: {
+    monday: { open: String, close: String },
+    tuesday: { open: String, close: String },
+    wednesday: { open: String, close: String },
+    thursday: { open: String, close: String },
+    friday: { open: String, close: String },
+    saturday: { open: String, close: String },
+    sunday: { open: String, close: String },
+  },
+  pricing: {
+    basePrice: { type: Number, required: true },
+    rules: [
+      {
+        day: {
+          type: String,
+          enum: [
+            'monday',
+            'tuesday',
+            'wednesday',
+            'thursday',
+            'friday',
+            'saturday',
+            'sunday',
+            'holiday',
+            'any',
+          ],
+          default: 'any',
+        },
+        start: String, // "HH:MM"
+        end: String, // "HH:MM"
+        price: Number,
+      },
+    ],
+  },
+  amenities: [String],
+  images: [String],
+  reviews: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Review' }],
+  bookings: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Booking' }],
+  registrationFeeStatus: {
+    paid: { type: Boolean, default: false },
+    expiryDate: { type: Date },
+  },
+  closures: [
+    {
+      date: Date,
+      reason: String,
+    },
+  ],
+  createdAt: { type: Date, default: Date.now },
+  updatedAt: { type: Date, default: Date.now },
+  isActive: { type: Boolean, default: true },
+});
+
+// Add 2dsphere index for geospatial queries
+FutsalSchema.index({ 'location.coordinates': '2dsphere' });
+
+module.exports = mongoose.model('Futsal', FutsalSchema);
+
+
+
+===== File: /home/d1e/Playground/futsal/backend/src/controllers/.keep =====
+
+
+
+
+===== File: /home/d1e/Playground/futsal/backend/src/controllers/reviewController.js =====
+const Review = require('../models/Review');
+const Booking = require('../models/Booking');
+const Futsal = require('../models/Futsal');
+
+// POST /api/reviews - Create review for a futsal (user must have a booking)
+exports.createReview = async (req, res) => {
+  try {
+    const { futsalId, rating, feedback } = req.body;
+    if (!futsalId || !rating || !feedback) {
+      return res.status(400).json({ message: 'Missing required fields' });
+    }
+    // Only allow if user has a completed or confirmed booking for this futsal
+    const booking = await Booking.findOne({
+      futsal: futsalId,
+      user: req.user._id,
+      status: { $in: ['completed', 'confirmed'] },
+    });
+    if (!booking) {
+      return res.status(403).json({ message: 'You can only review futsals you have booked.' });
+    }
+    // Only one review per user per futsal
+    const existing = await Review.findOne({ futsal: futsalId, user: req.user._id });
+    if (existing) {
+      return res.status(400).json({ message: 'You have already reviewed this futsal.' });
+    }
+    const review = await Review.create({
+      futsal: futsalId,
+      user: req.user._id,
+      rating,
+      feedback,
+    });
+    res.status(201).json(review);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// GET /api/reviews/:futsalId - Get all reviews for a futsal (with pagination and filtering)
+exports.getReviewsForFutsal = async (req, res) => {
+  try {
+    const { futsalId } = req.params;
+    const { page = 1, limit = 10, rating } = req.query;
+    const filter = { futsal: futsalId };
+    if (rating) filter.rating = Number(rating);
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const total = await Review.countDocuments(filter);
+    const reviews = await Review.find(filter)
+      .populate('user', 'fullName')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit));
+    res.json({ total, page: parseInt(page), limit: parseInt(limit), reviews });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// DELETE /api/reviews/:id - Delete own review
+exports.deleteReview = async (req, res) => {
+  try {
+    const review = await Review.findById(req.params.id);
+    if (!review) {
+      return res.status(404).json({ message: 'Review not found' });
+    }
+    if (review.user.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: 'Not authorized' });
+    }
+    await review.deleteOne();
+    res.json({ message: 'Review deleted' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+
+
+===== File: /home/d1e/Playground/futsal/backend/src/controllers/paymentController.js =====
+const { verifyKhaltiPayment } = require('../services/khaltiService');
+const Futsal = require('../models/Futsal');
+const { sendMail } = require('../utils/email');
+const futsalPaymentSuccessTemplate = require('../utils/emailTemplates/futsalPaymentSuccess');
+const User = require('../models/User');
+
+// POST /api/v1/payments/verify
+exports.verifyFutsalRegistrationPayment = async (req, res) => {
+  const { futsalId, pidx } = req.body;
+  if (!futsalId || !pidx) {
+    return res.status(400).json({ error: 'futsalId and pidx are required.' });
+  }
+  try {
+    const isPaid = await verifyKhaltiPayment(pidx);
+    if (!isPaid) {
+      return res.status(400).json({ error: 'Payment not completed or invalid.' });
+    }
+    // Fetch previous status
+    const futsal = await Futsal.findById(futsalId).populate('owner');
+    if (!futsal) {
+      return res.status(404).json({ error: 'Futsal not found.' });
+    }
+    const wasPaid = futsal.registrationFeeStatus.paid;
+    // Update payment status
+    futsal.registrationFeeStatus.paid = true;
+    await futsal.save();
+    // If payment was not previously complete, send success email
+    if (!wasPaid) {
+      // Get owner email and name
+      const owner = futsal.owner;
+      if (owner && owner.email) {
+        await sendMail({
+          to: owner.email,
+          subject: 'Futsal Payment Successful',
+          html: futsalPaymentSuccessTemplate({
+            ownerName: owner.fullName || owner.username,
+            futsalName: futsal.name,
+          }),
+        });
+      }
+    }
+    res.json({ message: 'Payment verified and registration completed.', futsal });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Server error' });
+  }
+};
+
+
+
+===== File: /home/d1e/Playground/futsal/backend/src/controllers/bookingController.js =====
+// Booking Controller: Handles all booking-related logic
+const Booking = require('../models/Booking');
+const Futsal = require('../models/Futsal');
+const User = require('../models/User');
+const sendMail = require('../utils/sendMail'); // Assuming sendMail utility is defined in this file
+const { createNotification } = require('./notificationController');
+const { getAsync, setAsync, delAsync } = require('../utils/redisClient');
+
+// Allowed booking durations in minutes
+const ALLOWED_DURATIONS = [30, 60, 90, 120];
+const MAX_BULK_DAYS = 30;
+
+// Utility for sending booking-related emails
+async function sendBookingEmail({ to, subject, html }) {
+  return sendMail({ to, subject, html });
+}
+
+function calculateDurationInMinutes(startTime, endTime) {
+  // startTime and endTime are in "HH:MM" format
+  const [sh, sm] = startTime.split(':').map(Number);
+  const [eh, em] = endTime.split(':').map(Number);
+  return eh * 60 + em - (sh * 60 + sm);
+}
+
+function isTimeWithinOperatingHours(startTime, endTime, operatingHours) {
+  if (!operatingHours || !operatingHours.open || !operatingHours.close) return false;
+  return startTime >= operatingHours.open && endTime <= operatingHours.close;
+}
+
+function getDayOfWeek(date) {
+  return new Date(date).toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
+}
+
+// POST /api/bookings - Create a new booking
+exports.createBooking = async (req, res) => {
+  try {
+    const { futsalId, date, startTime, endTime, bookingType, teamA, teamB, specialRequests } =
+      req.body;
+    if (!futsalId || !date || !startTime || !endTime || !bookingType || !teamA) {
+      return res.status(400).json({ message: 'Missing required fields' });
+    }
+    // 1. Futsal existence and status
+    const futsal = await Futsal.findById(futsalId).populate('owner');
+    if (!futsal || !futsal.isActive) {
+      return res.status(404).json({ message: 'Futsal not found or inactive' });
+    }
+    // Calculate price dynamically
+    let price = futsal.pricing.basePrice;
+    if (futsal.pricing.rules && Array.isArray(futsal.pricing.rules)) {
+      const bookingDay = getDayOfWeek(date);
+      for (const rule of futsal.pricing.rules) {
+        // Match day (or 'any') and time overlap
+        if (
+          (rule.day === bookingDay || rule.day === 'any') &&
+          startTime >= rule.start &&
+          endTime <= rule.end
+        ) {
+          price = rule.price;
+        }
+      }
+    }
+    // 2. Duration validation
+    const duration = calculateDurationInMinutes(startTime, endTime);
+    if (!ALLOWED_DURATIONS.includes(duration)) {
+      return res
+        .status(400)
+        .json({ message: 'Invalid booking duration. Allowed: 30, 60, 90, 120 min' });
+    }
+    // 3. Operating hours validation
+    const dayOfWeek = getDayOfWeek(date);
+    const operatingHours = futsal.operatingHours[dayOfWeek];
+    if (!isTimeWithinOperatingHours(startTime, endTime, operatingHours)) {
+      return res.status(400).json({ message: 'Booking time outside operating hours' });
+    }
+    // 4. Booking must be in the future
+    const bookingStart = new Date(`${date}T${startTime}`);
+    if (bookingStart < new Date()) {
+      return res.status(400).json({ message: 'Cannot book for past time' });
+    }
+    // 5. Slot availability (no overlap)
+    const slotConflict = await Booking.findOne({
+      futsal: futsalId,
+      date: new Date(date),
+      status: { $nin: ['cancelled'] },
+      $or: [{ startTime: { $lt: endTime }, endTime: { $gt: startTime } }],
+    });
+    if (slotConflict) {
+      return res.status(409).json({ message: 'Time slot already booked' });
+    }
+    // 6. User cannot double-book
+    const userConflict = await Booking.findOne({
+      user: req.user._id,
+      date: new Date(date),
+      status: { $nin: ['cancelled'] },
+      $or: [{ startTime: { $lt: endTime }, endTime: { $gt: startTime } }],
+    });
+    if (userConflict) {
+      return res.status(409).json({ message: 'You already have a booking during this time' });
+    }
+    // 7. Team validation (only team entity needed)
+    if (bookingType === 'full' && !teamB) {
+      return res.status(400).json({ message: 'Team B required for full booking' });
+    }
+    // 8. Create booking
+    const booking = new Booking({
+      futsal: futsalId,
+      user: req.user._id,
+      date: new Date(date),
+      startTime,
+      endTime,
+      price,
+      status: 'pending',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      bookingType,
+      teamA,
+      teamB: teamB || (bookingType === 'partial' ? { isOpen: true } : undefined),
+      specialRequests,
+    });
+    await booking.save();
+    // Notify futsal owner of booking attempt
+    if (futsal.owner && futsal.owner.email) {
+      const html = `<p>A new booking has been attempted for your futsal <b>${futsal.name}</b> on ${date} from ${startTime} to ${endTime}.</p>`;
+      await sendBookingEmail({ to: futsal.owner.email, subject: 'New Booking Attempt', html });
+    }
+    // --- Notification: Booking created ---
+    await createNotification({
+      user: req.user._id,
+      message: `Your booking for ${futsal.name} on ${date} from ${startTime} to ${endTime} has been created.`,
+      type: 'booking_created',
+      meta: { booking: booking._id },
+    });
+    return res.status(201).json({ message: 'Booking created', booking });
+  } catch (err) {
+    return res.status(500).json({ message: 'Server error', error: err.message });
+  }
+};
+
+// POST /api/bookings/bulk - Create bulk booking
+exports.createBulkBooking = async (req, res) => {
+  try {
+    const {
+      futsalId,
+      startDate,
+      endDate,
+      startTime,
+      endTime,
+      daysOfWeek,
+      bookingType,
+      teamA,
+      teamB,
+      specialRequests,
+    } = req.body;
+    if (!futsalId || !startDate || !endDate || !startTime || !endTime || !daysOfWeek || !teamA) {
+      return res.status(400).json({ message: 'Missing required fields' });
+    }
+    // Validate date range
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    const diffDays = Math.ceil((end - start) / (1000 * 60 * 60 * 24));
+    if (diffDays > MAX_BULK_DAYS) {
+      return res.status(400).json({ message: `Bulk booking cannot exceed ${MAX_BULK_DAYS} days` });
+    }
+    // Generate dates for booking
+    const bookingDates = [];
+    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      const day = d.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
+      if (daysOfWeek.includes(day)) {
+        bookingDates.push(new Date(d));
+      }
+    }
+    if (bookingDates.length === 0) {
+      return res.status(400).json({ message: 'No valid booking dates found' });
+    }
+    // Validate each date
+    const validBookings = [];
+    const invalidBookings = [];
+    for (const date of bookingDates) {
+      // Repeat single booking validation logic
+      // Duration
+      const duration = calculateDurationInMinutes(startTime, endTime);
+      if (!ALLOWED_DURATIONS.includes(duration)) {
+        invalidBookings.push({ date, reason: 'Invalid duration' });
+        continue;
+      }
+      // Futsal
+      const futsal = await Futsal.findById(futsalId);
+      if (!futsal || !futsal.isActive) {
+        invalidBookings.push({ date, reason: 'Futsal not found or inactive' });
+        continue;
+      }
+      // Operating hours
+      const dayOfWeek = getDayOfWeek(date);
+      const operatingHours = futsal.operatingHours[dayOfWeek];
+      if (!isTimeWithinOperatingHours(startTime, endTime, operatingHours)) {
+        invalidBookings.push({ date, reason: 'Outside operating hours' });
+        continue;
+      }
+      // Future booking
+      const bookingStart = new Date(`${date.toISOString().split('T')[0]}T${startTime}`);
+      if (bookingStart < new Date()) {
+        invalidBookings.push({ date, reason: 'Cannot book for past time' });
+        continue;
+      }
+      // Slot conflict
+      const slotConflict = await Booking.findOne({
+        futsal: futsalId,
+        date: date,
+        status: { $nin: ['cancelled'] },
+        $or: [{ startTime: { $lt: endTime }, endTime: { $gt: startTime } }],
+      });
+      if (slotConflict) {
+        invalidBookings.push({ date, reason: 'Time slot already booked' });
+        continue;
+      }
+      // User conflict
+      const userConflict = await Booking.findOne({
+        user: req.user._id,
+        date: date,
+        status: { $nin: ['cancelled'] },
+        $or: [{ startTime: { $lt: endTime }, endTime: { $gt: startTime } }],
+      });
+      if (userConflict) {
+        invalidBookings.push({ date, reason: 'User already has a booking during this time' });
+        continue;
+      }
+      // Team validation
+      if (bookingType === 'full' && !teamB) {
+        invalidBookings.push({ date, reason: 'Team B required for full booking' });
+        continue;
+      }
+      validBookings.push(date);
+    }
+    if (validBookings.length === 0) {
+      return res.status(400).json({ message: 'No valid slots available', invalidBookings });
+    }
+    // Calculate total price
+    const futsal = await Futsal.findById(futsalId);
+    const duration = calculateDurationInMinutes(startTime, endTime);
+    let pricePerBooking = futsal.pricing.basePrice;
+    if (futsal.pricing.rules && Array.isArray(futsal.pricing.rules)) {
+      const bookingDay = getDayOfWeek(validBookings[0]);
+      for (const rule of futsal.pricing.rules) {
+        // Match day (or 'any') and time overlap
+        if (
+          (rule.day === bookingDay || rule.day === 'any') &&
+          startTime >= rule.start &&
+          endTime <= rule.end
+        ) {
+          pricePerBooking = rule.price;
+        }
+      }
+    }
+    const totalPrice = pricePerBooking * validBookings.length;
+    // Save only valid bookings (pending status)
+    const createdBookings = [];
+    for (const date of validBookings) {
+      const booking = new Booking({
+        futsal: futsalId,
+        user: req.user._id,
+        date: date,
+        startTime,
+        endTime,
+        price: pricePerBooking,
+        status: 'pending',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        bookingType,
+        teamA,
+        teamB: teamB || (bookingType === 'partial' ? { isOpen: true } : undefined),
+        specialRequests,
+        isBulkBooking: true,
+      });
+      await booking.save();
+      createdBookings.push(booking);
+      // Notify futsal owner of booking attempt
+      if (futsal.owner && futsal.owner.email) {
+        const html = `<p>A new booking has been attempted for your futsal <b>${futsal.name}</b> on ${date.toDateString()} from ${startTime} to ${endTime}.</p>`;
+        await sendBookingEmail({ to: futsal.owner.email, subject: 'New Booking Attempt', html });
+      }
+      // --- Notification: Booking created ---
+      await createNotification({
+        user: req.user._id,
+        message: `Your booking for ${futsal.name} on ${date.toDateString()} from ${startTime} to ${endTime} has been created.`,
+        type: 'booking_created',
+        meta: { booking: booking._id },
+      });
+    }
+    // Invalidate futsal cache after bulk booking
+    await delAsync(`futsal:${futsalId}`);
+    return res.status(201).json({
+      message: 'Bulk booking created',
+      bookings: createdBookings,
+      invalidBookings,
+      totalPrice,
+    });
+  } catch (err) {
+    return res.status(500).json({ message: 'Server error', error: err.message });
+  }
+};
+
+// POST /api/bookings/bulk-payment - Bulk payment for multiple bookings
+exports.bulkBookingPayment = async (req, res) => {
+  try {
+    const { bookingIds, token, totalAmount } = req.body;
+    if (!Array.isArray(bookingIds) || bookingIds.length === 0 || !token || !totalAmount) {
+      return res.status(400).json({ message: 'Missing required fields' });
+    }
+    // Fetch all bookings
+    const bookings = await Booking.find({
+      _id: { $in: bookingIds },
+      paymentStatus: { $ne: 'paid' },
+    });
+    if (bookings.length !== bookingIds.length) {
+      return res.status(400).json({ message: 'Some bookings not found or already paid' });
+    }
+    // Calculate total
+    const sum = bookings.reduce((acc, b) => acc + (b.price || 0), 0);
+    if (sum !== totalAmount) {
+      return res.status(400).json({ message: 'Total amount mismatch' });
+    }
+    // Simulate payment (replace with real gateway logic)
+    for (let booking of bookings) {
+      booking.paymentStatus = 'paid';
+      booking.updatedAt = new Date();
+      await booking.save();
+      // Invalidate futsal cache
+      await delAsync(`futsal:${booking.futsal}`);
+      // Notify user
+      await createNotification({
+        user: booking.user,
+        message: `Your payment for booking at ${booking.futsal} on ${booking.date.toDateString()} is successful!`,
+        type: 'booking_payment',
+        meta: { booking: booking._id },
+      });
+    }
+    res.status(200).json({ message: 'Bulk payment successful', bookingIds });
+  } catch (err) {
+    res.status(500).json({ message: 'Server error', error: err.message });
+  }
+};
+
+// GET /api/bookings - Get all bookings (admin only)
+exports.getAllBookings = async (req, res) => {
+  try {
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Admin only' });
+    }
+    const bookings = await Booking.find().populate('futsal').populate('user');
+    res.status(200).json({ bookings });
+  } catch (err) {
+    res.status(500).json({ message: 'Server error', error: err.message });
+  }
+};
+
+// GET /api/bookings/my - Get bookings for the logged-in user
+exports.getMyBookings = async (req, res) => {
+  try {
+    const bookings = await Booking.find({ user: req.user._id })
+      .populate('futsal')
+      .sort({ date: -1, startTime: -1 });
+    res.status(200).json({ bookings });
+  } catch (err) {
+    res.status(500).json({ message: 'Server error', error: err.message });
+  }
+};
+
+// GET /api/bookings/:id - Get booking by ID
+exports.getBookingById = async (req, res) => {
+  try {
+    const booking = await Booking.findById(req.params.id).populate('futsal').populate('user');
+    if (!booking) {
+      return res.status(404).json({ message: 'Booking not found' });
+    }
+    // Only allow admin or owner of booking to view
+    if (req.user.role !== 'admin' && booking.user._id.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: 'Not authorized' });
+    }
+    res.status(200).json({ booking });
+  } catch (err) {
+    res.status(500).json({ message: 'Server error', error: err.message });
+  }
+};
+
+// PUT /api/bookings/:id - Update booking (limited fields)
+exports.updateBooking = async (req, res) => {
+  try {
+    const booking = await Booking.findById(req.params.id);
+    if (!booking) {
+      return res.status(404).json({ message: 'Booking not found' });
+    }
+    if (req.user.role !== 'admin' && booking.user.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: 'Not authorized' });
+    }
+    // Only allow updating specialRequests for simplicity
+    if (req.body.specialRequests !== undefined) {
+      booking.specialRequests = req.body.specialRequests;
+    }
+    booking.updatedAt = new Date();
+    await booking.save();
+    res.status(200).json({ message: 'Booking updated', booking });
+  } catch (err) {
+    res.status(500).json({ message: 'Server error', error: err.message });
+  }
+};
+
+// DELETE /api/bookings/:id - Cancel booking
+exports.cancelBooking = async (req, res) => {
+  try {
+    const booking = await Booking.findById(req.params.id).populate('futsal');
+    if (!booking) {
+      return res.status(404).json({ message: 'Booking not found' });
+    }
+    if (req.user.role !== 'admin' && booking.user.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: 'Not authorized' });
+    }
+    if (booking.status === 'cancelled') {
+      return res.status(400).json({ message: 'Booking already cancelled' });
+    }
+    booking.status = 'cancelled';
+    booking.updatedAt = new Date();
+    await booking.save();
+    // Notify user
+    const user = await User.findById(booking.user);
+    if (user && user.email) {
+      const html = `<p>Your booking for ${booking.futsal.name} on ${booking.date.toDateString()} from ${booking.startTime} to ${booking.endTime} has been cancelled.</p>`;
+      await sendBookingEmail({ to: user.email, subject: 'Booking Cancelled', html });
+    }
+    // Notify futsal owner
+    if (booking.futsal.owner && booking.futsal.owner.email) {
+      const html = `<p>A booking for your futsal <b>${booking.futsal.name}</b> on ${booking.date.toDateString()} from ${booking.startTime} to ${booking.endTime} has been cancelled.</p>`;
+      await sendBookingEmail({
+        to: booking.futsal.owner.email,
+        subject: 'Booking Cancelled',
+        html,
+      });
+    }
+    res.status(200).json({ message: 'Booking cancelled', booking });
+  } catch (err) {
+    res.status(500).json({ message: 'Server error', error: err.message });
+  }
+};
+
+// POST /api/bookings/:id/join - Join an existing booking as team B
+exports.joinBooking = async (req, res) => {
+  try {
+    const booking = await Booking.findById(req.params.id);
+    if (!booking) {
+      return res.status(404).json({ message: 'Booking not found' });
+    }
+    if (booking.bookingType !== 'partial' || !booking.teamB || !booking.teamB.isOpen) {
+      return res.status(400).json({ message: 'This booking is not open for joining' });
+    }
+    // Only allow joining if not already joined
+    if (booking.teamB && !booking.teamB.isOpen) {
+      return res.status(400).json({ message: 'Team B already filled' });
+    }
+    booking.teamB = req.body.teamB || { isOpen: false };
+    booking.updatedAt = new Date();
+    await booking.save();
+    res.status(200).json({ message: 'Joined as Team B', booking });
+  } catch (err) {
+    res.status(500).json({ message: 'Server error', error: err.message });
+  }
+};
+
+// POST /api/bookings/:id/payment - Process booking payment
+exports.processBookingPayment = async (req, res) => {
+  try {
+    const { token, amount } = req.body;
+    const bookingId = req.params.id;
+    // 1. Find booking
+    const booking = await Booking.findById(bookingId).populate('futsal');
+    if (!booking) {
+      return res.status(404).json({ message: 'Booking not found' });
+    }
+    // 2. Prevent double payment
+    if (booking.paymentStatus === 'paid') {
+      return res.status(400).json({ message: 'Booking already paid' });
+    }
+    // 3. Amount must match booking price
+    if (Number(amount) !== Number(booking.price)) {
+      return res.status(400).json({ message: 'Payment amount does not match booking price' });
+    }
+    // 4. Verify with Khalti (mocked here)
+    // In production, send HTTP request to Khalti API to verify token/amount
+    // For now, assume any non-empty token is valid
+    if (!token || typeof token !== 'string' || token.length < 5) {
+      return res.status(400).json({ message: 'Invalid payment token' });
+    }
+    // 5. Update booking status
+    booking.paymentStatus = 'paid';
+    booking.status = 'confirmed';
+    booking.paymentDetails = {
+      transactionId: token,
+      paymentMethod: 'khalti',
+      paymentDate: new Date(),
+    };
+    booking.updatedAt = new Date();
+    await booking.save();
+    // Optionally: create transaction record here
+    // Send confirmation email to user
+    const user = await User.findById(booking.user);
+    if (user && user.email) {
+      const html = `<p>Your booking for ${booking.futsal.name} on ${booking.date.toDateString()} from ${booking.startTime} to ${booking.endTime} has been confirmed. Payment received.</p>`;
+      await sendBookingEmail({ to: user.email, subject: 'Booking Confirmed', html });
+    }
+    // Notify futsal owner
+    if (booking.futsal.owner && booking.futsal.owner.email) {
+      const html = `<p>A booking for your futsal <b>${booking.futsal.name}</b> on ${booking.date.toDateString()} from ${booking.startTime} to ${booking.endTime} has been confirmed and paid.</p>`;
+      await sendBookingEmail({
+        to: booking.futsal.owner.email,
+        subject: 'Booking Confirmed',
+        html,
+      });
+    }
+    // --- Notification: Booking payment successful ---
+    await createNotification({
+      user: booking.user,
+      message: `Your payment for booking at ${booking.futsal.name} on ${booking.date.toDateString()} is successful!`,
+      type: 'booking_payment',
+      meta: { booking: booking._id },
+    });
+    // Invalidate futsal cache
+    await delAsync(`futsal:${booking.futsal}`);
+    res.status(200).json({ message: 'Payment successful', booking });
+  } catch (err) {
+    res.status(500).json({ message: 'Server error', error: err.message });
+  }
+};
+
+// GET /api/bookings/availability/:futsalId - Check availability for futsal
+exports.checkFutsalAvailability = async (req, res) => {
+  try {
+    const { futsalId } = req.params;
+    const { date, startTime, endTime } = req.query;
+    if (!futsalId || !date) {
+      return res.status(400).json({ message: 'Missing required parameters' });
+    }
+    const futsal = await Futsal.findById(futsalId);
+    if (!futsal || !futsal.isActive) {
+      return res.status(404).json({ message: 'Futsal not found or inactive' });
+    }
+    if (startTime && endTime) {
+      // Check slot availability
+      const slotConflict = await Booking.findOne({
+        futsal: futsalId,
+        date: new Date(date),
+        status: { $nin: ['cancelled'] },
+        $or: [{ startTime: { $lt: endTime }, endTime: { $gt: startTime } }],
+      });
+      if (slotConflict) {
+        return res.status(200).json({ available: false, message: 'Slot not available' });
+      }
+      return res.status(200).json({ available: true, message: 'Slot available' });
+    }
+    // If only date, return all bookings for the day
+    const bookings = await Booking.find({
+      futsal: futsalId,
+      date: new Date(date),
+      status: { $nin: ['cancelled'] },
+    });
+    res.status(200).json({ bookings });
+  } catch (err) {
+    res.status(500).json({ message: 'Server error', error: err.message });
+  }
+};
+
+// POST /api/bookings/initiate - Initiate a new booking as Team A
+exports.initiateBookingAsTeamA = async (req, res) => {
+  try {
+    const { futsalId, date, startTime, endTime, bookingType, specialRequests } = req.body;
+    if (!futsalId || !date || !startTime || !endTime || !bookingType) {
+      return res.status(400).json({ message: 'Missing required fields' });
+    }
+    // 1. Futsal existence and status
+    const futsal = await Futsal.findById(futsalId).populate('owner');
+    if (!futsal || !futsal.isActive) {
+      return res.status(404).json({ message: 'Futsal not found or inactive' });
+    }
+    // Calculate price dynamically (reuse logic from createBooking)
+    let price = futsal.pricing.basePrice;
+    if (futsal.pricing.rules && Array.isArray(futsal.pricing.rules)) {
+      const bookingDay = getDayOfWeek(date);
+      for (const rule of futsal.pricing.rules) {
+        if (
+          (rule.day === bookingDay || rule.day === 'any') &&
+          startTime >= rule.start &&
+          endTime <= rule.end
+        ) {
+          price = rule.price;
+        }
+      }
+    }
+    // Duration validation
+    const duration = calculateDurationInMinutes(startTime, endTime);
+    if (!ALLOWED_DURATIONS.includes(duration)) {
+      return res
+        .status(400)
+        .json({ message: 'Invalid booking duration. Allowed: 30, 60, 90, 120 min' });
+    }
+    // Check slot availability
+    const slotConflict = await Booking.findOne({
+      futsal: futsalId,
+      date: new Date(date),
+      startTime,
+      endTime,
+      status: { $nin: ['cancelled'] },
+    });
+    if (slotConflict) {
+      return res.status(409).json({ message: 'Slot already booked' });
+    }
+    // Create booking with current user as Team A
+    const booking = new Booking({
+      futsal: futsalId,
+      user: req.user._id,
+      date,
+      startTime,
+      endTime,
+      price,
+      status: 'pending',
+      bookingType,
+      teamA: { members: [req.user._id], confirmed: true },
+      teamB: bookingType === 'partial' ? { isOpen: true } : undefined,
+      specialRequests,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    await booking.save();
+    // Notify futsal owner
+    if (futsal.owner && futsal.owner.email) {
+      const html = `<p>A new booking has been initiated for your futsal <b>${futsal.name}</b> on ${date} from ${startTime} to ${endTime}.</p>`;
+      await sendBookingEmail({ to: futsal.owner.email, subject: 'New Booking Initiated', html });
+    }
+    res.status(201).json({ message: 'Booking initiated as Team A', booking });
+  } catch (err) {
+    res.status(500).json({ message: 'Server error', error: err.message });
+  }
+};
+
+
+
+===== File: /home/d1e/Playground/futsal/backend/src/controllers/notificationController.js =====
+const Notification = require('../models/Notification');
+const Booking = require('../models/Booking');
+
+// Get notifications for the logged-in user (for polling)
+exports.getNotifications = async (req, res) => {
+  try {
+    const notifications = await Notification.find({ user: req.user._id, isRead: false }).sort({
+      createdAt: -1,
+    });
+    res.json({ notifications });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// Mark notifications as read
+exports.markAsRead = async (req, res) => {
+  try {
+    await Notification.updateMany(
+      { user: req.user._id, _id: { $in: req.body.ids } },
+      { isRead: true },
+    );
+    res.json({ message: 'Notifications marked as read' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// Create notification utility (to be called on booking/payment events)
+exports.createNotification = async ({ user, message, type, meta }) => {
+  try {
+    await Notification.create({ user, message, type, meta });
+  } catch (err) {
+    // Logging only; do not throw
+    console.error('Notification creation failed', err);
+  }
+};
+
+
+
+===== File: /home/d1e/Playground/futsal/backend/src/controllers/holidayController.js =====
+const Holiday = require('../models/Holiday');
+const Futsal = require('../models/Futsal');
+
+// Create a holiday
+exports.createHoliday = async (req, res) => {
+  try {
+    const { name, date, isRecurring, recurringDetails } = req.body;
+    const holiday = await Holiday.create({ name, date, isRecurring, recurringDetails });
+    res.status(201).json({ message: 'Holiday created', holiday });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// Get all holidays
+exports.getHolidays = async (req, res) => {
+  try {
+    const holidays = await Holiday.find();
+    res.json({ holidays });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// Update a holiday
+exports.updateHoliday = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const holiday = await Holiday.findByIdAndUpdate(id, req.body, { new: true });
+    if (!holiday) return res.status(404).json({ message: 'Holiday not found' });
+    res.json({ message: 'Holiday updated', holiday });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// Delete a holiday
+exports.deleteHoliday = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const holiday = await Holiday.findByIdAndDelete(id);
+    if (!holiday) return res.status(404).json({ message: 'Holiday not found' });
+    res.json({ message: 'Holiday deleted' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// Futsal closure management
+// POST /api/futsals/:id/close - Close futsal for specific dates/reasons
+exports.closeFutsal = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { dates, reason } = req.body; // dates: array of Date
+    const futsal = await Futsal.findById(id);
+    if (!futsal) return res.status(404).json({ message: 'Futsal not found' });
+    if (!futsal.closures) futsal.closures = [];
+    dates.forEach((date) => {
+      futsal.closures.push({ date: new Date(date), reason });
+    });
+    await futsal.save();
+    res.json({ message: 'Futsal closed for specified dates', closures: futsal.closures });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// GET /api/futsals/:id/closures - Get futsal closure dates
+exports.getFutsalClosures = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const futsal = await Futsal.findById(id);
+    if (!futsal) return res.status(404).json({ message: 'Futsal not found' });
+    res.json({ closures: futsal.closures || [] });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+
+
+===== File: /home/d1e/Playground/futsal/backend/src/controllers/futsalController.js =====
+const Futsal = require('../models/Futsal');
+const { validationResult } = require('express-validator');
+const { verifyKhaltiPayment } = require('../services/khaltiService');
+const { sendMail } = require('../utils/email');
+const User = require('../models/User');
+const { isHoliday } = require('../services/holidayService');
+const Review = require('../models/Review');
+const { getAsync, setAsync } = require('../utils/redisClient');
+const { uploadImage, deleteImage } = require('../utils/cloudinary');
+
+// Helper: Calculate average rating for a futsal
+async function getAverageRating(futsalId) {
+  const result = await Review.aggregate([
+    {
+      $match: {
+        futsal:
+          typeof futsalId === 'string' ? require('mongoose').Types.ObjectId(futsalId) : futsalId,
+      },
+    },
+    { $group: { _id: null, avg: { $avg: '$rating' }, count: { $sum: 1 } } },
+  ]);
+  return result[0] ? { avg: result[0].avg, count: result[0].count } : { avg: null, count: 0 };
+}
+
+// GET /api/futsals?search=&city=&district=&page=&limit=&lng=&lat=&minRating=
+exports.getFutsals = async (req, res) => {
+  try {
+    const { search, city, district, page = 1, lng, lat, minRating } = req.query;
+    const limit = parseInt(req.query.limit) || 15;
+    const filter = {};
+    if (search) filter.name = { $regex: search, $options: 'i' };
+    if (city) filter['location.city'] = city;
+    if (district) filter['location.district'] = district;
+    const skip = (parseInt(page) - 1) * limit;
+    const total = await Futsal.countDocuments(filter);
+    let futsals;
+    let userCoords = null;
+    if (lng && lat) {
+      userCoords = [parseFloat(lng), parseFloat(lat)];
+      futsals = await Futsal.find(filter)
+        .near('location.coordinates', {
+          center: { type: 'Point', coordinates: userCoords },
+          maxDistance: 10000, // 10km, adjust as needed
+          spherical: true,
+        })
+        .skip(skip)
+        .limit(limit);
+    } else {
+      futsals = await Futsal.find(filter).skip(skip).limit(limit);
+    }
+    // --- Dynamic Pricing Logic ---
+    const now = new Date();
+    const day = now.getDay();
+    const hour = now.getHours();
+    let holidayModifier = 0;
+    try {
+      if (await isHoliday(now)) holidayModifier = 0.2;
+    } catch (e) {
+      holidayModifier = day === 6 ? 0.2 : 0;
+    }
+    let timeModifier = 0;
+    if (hour >= 6 && hour < 12) timeModifier = 0;
+    else if (hour >= 12 && hour < 18) timeModifier = 0.1;
+    else if (hour >= 18 && hour < 22) timeModifier = 0.2;
+    // --- Fetch and apply rating modifier ---
+    const futsalsWithDynamicPrice = await Promise.all(
+      futsals.map(async (futsal) => {
+        const basePrice = futsal.pricing.basePrice || 0;
+        let dynamicPrice = basePrice;
+        dynamicPrice += basePrice * timeModifier;
+        dynamicPrice += basePrice * holidayModifier;
+        // --- Distance Modifier ---
+        let distance = null;
+        let distanceModifier = 0;
+        if (
+          userCoords &&
+          futsal.location &&
+          futsal.location.coordinates &&
+          Array.isArray(futsal.location.coordinates.coordinates)
+        ) {
+          const [flng, flat] = futsal.location.coordinates.coordinates;
+          const toRad = (deg) => (deg * Math.PI) / 180;
+          const R = 6371e3; // meters
+          const dLat = toRad(flat - parseFloat(lat));
+          const dLng = toRad(flng - parseFloat(lng));
+          const a =
+            Math.sin(dLat / 2) ** 2 +
+            Math.cos(toRad(parseFloat(lat))) * Math.cos(toRad(flat)) * Math.sin(dLng / 2) ** 2;
+          const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+          distance = R * c;
+          if (distance > 10000) distanceModifier = 0.2;
+          else if (distance > 5000) distanceModifier = 0.1;
+          dynamicPrice += basePrice * distanceModifier;
+        }
+        // --- Rating Modifier ---
+        const { avg: avgRating, count: reviewCount } = await getAverageRating(futsal._id);
+        let ratingModifier = 0;
+        if (avgRating !== null) {
+          if (avgRating >= 4.5)
+            ratingModifier = 0.1; // +10% for top-rated
+          else if (avgRating >= 4.0)
+            ratingModifier = 0.05; // +5%
+          else if (avgRating <= 2.5) ratingModifier = -0.1; // -10% for low-rated
+        }
+        dynamicPrice += basePrice * ratingModifier;
+        return {
+          ...futsal.toObject(),
+          pricing: {
+            ...futsal.pricing,
+            dynamicPrice: Math.round(dynamicPrice),
+            distance: distance ? Math.round(distance) : undefined,
+            distanceModifier,
+            ratingModifier,
+            avgRating,
+            reviewCount,
+          },
+        };
+      }),
+    );
+    // --- Filter by minRating if provided ---
+    const filteredFutsals = minRating
+      ? futsalsWithDynamicPrice.filter((f) => (f.pricing.avgRating || 0) >= parseFloat(minRating))
+      : futsalsWithDynamicPrice;
+    res.json({ total, page: parseInt(page), limit, futsals: filteredFutsals });
+  } catch (err) {
+    res.locals.errorMessage = err.message;
+    res.status(500).json({ error: err.message || 'Server error' });
+  }
+};
+
+// POST /api/futsals
+exports.createFutsal = async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    res.locals.errorMessage = JSON.stringify(errors.array());
+    return res.status(400).json({ errors: errors.array() });
+  }
+  try {
+    const futsal = await Futsal.create({ ...req.body, owner: req.user._id });
+    res.status(201).json(futsal);
+  } catch (err) {
+    res.locals.errorMessage = err.message;
+    res.status(500).json({ error: err.message || 'Server error' });
+  }
+};
+
+// PUT /api/futsals/:id
+exports.updateFutsal = async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    res.locals.errorMessage = JSON.stringify(errors.array());
+    return res.status(400).json({ errors: errors.array() });
+  }
+  try {
+    const futsal = await Futsal.findOneAndUpdate(
+      { _id: req.params.id, owner: req.user._id },
+      req.body,
+      { new: true },
+    );
+    if (!futsal) {
+      res.locals.errorMessage = 'Futsal not found';
+      return res.status(404).json({ error: 'Futsal not found' });
+    }
+    // Notify futsal owner of update
+    const owner = await User.findById(futsal.owner);
+    if (owner && owner.email) {
+      const html = `<p>Your futsal <b>${futsal.name}</b> details have been updated.</p>`;
+      await sendMail({ to: owner.email, subject: 'Futsal Details Updated', html });
+    }
+    res.json(futsal);
+  } catch (err) {
+    res.locals.errorMessage = err.message;
+    res.status(500).json({ error: err.message || 'Server error' });
+  }
+};
+
+// DELETE /api/futsals/:id
+exports.deleteFutsal = async (req, res) => {
+  try {
+    const futsal = await Futsal.findOneAndDelete({ _id: req.params.id, owner: req.user._id });
+    if (!futsal) {
+      res.locals.errorMessage = 'Futsal not found';
+      return res.status(404).json({ error: 'Futsal not found' });
+    }
+    // Delete all images from Cloudinary (if public_id can be parsed)
+    if (Array.isArray(futsal.images)) {
+      for (const imageUrl of futsal.images) {
+        // Try to extract public_id from the URL
+        const match = imageUrl.match(/\/futsals\/([^/.]+)\/(.+)\.[a-zA-Z]+$/);
+        if (match) {
+          const publicId = `futsals/${match[1]}/${match[2]}`;
+          await deleteImage(publicId).catch(() => {});
+        }
+      }
+    }
+    res.json({ message: 'Futsal deleted' });
+  } catch (err) {
+    res.locals.errorMessage = err.message;
+    res.status(500).json({ error: err.message || 'Server error' });
+  }
+};
+
+// GET /api/futsals/:id
+exports.getFutsalById = async (req, res) => {
+  try {
+    const cacheKey = `futsal:${req.params.id}`;
+    const cached = await getAsync(cacheKey);
+    if (cached) {
+      return res.json(JSON.parse(cached));
+    }
+    const futsal = await Futsal.findById(req.params.id);
+    if (!futsal) {
+      res.locals.errorMessage = 'Futsal not found';
+      return res.status(404).json({ error: 'Futsal not found' });
+    }
+    // --- Dynamic Pricing Logic ---
+    const now = new Date();
+    const day = now.getDay(); // 0 = Sunday, 6 = Saturday
+    const hour = now.getHours();
+    let holidayModifier = 0;
+    try {
+      if (await isHoliday(now)) holidayModifier = 0.2;
+    } catch (e) {
+      holidayModifier = day === 6 ? 0.2 : 0;
+    }
+    let timeModifier = 0;
+    if (hour >= 6 && hour < 12) timeModifier = 0;
+    else if (hour >= 12 && hour < 18) timeModifier = 0.1;
+    else if (hour >= 18 && hour < 22) timeModifier = 0.2;
+    const basePrice = futsal.pricing.basePrice || 0;
+    let dynamicPrice = basePrice;
+    dynamicPrice += basePrice * timeModifier;
+    dynamicPrice += basePrice * holidayModifier;
+    // --- Rating Modifier ---
+    const { avg: avgRating, count: reviewCount } = await getAverageRating(futsal._id);
+    let ratingModifier = 0;
+    if (typeof avgRating === 'number') {
+      if (avgRating >= 4.5)
+        ratingModifier = 0.1; // +10% for top-rated
+      else if (avgRating >= 4.0)
+        ratingModifier = 0.05; // +5%
+      else if (avgRating <= 2.5) ratingModifier = -0.1; // -10% for low-rated
+    }
+    dynamicPrice += basePrice * ratingModifier;
+    const response = {
+      ...futsal.toObject(),
+      pricing: {
+        ...futsal.pricing,
+        dynamicPrice: Math.round(dynamicPrice),
+        ratingModifier,
+        avgRating,
+        reviewCount,
+      },
+    };
+    await setAsync(cacheKey, JSON.stringify(response), 'EX', 60 * 5); // Cache for 5 min
+    res.json(response);
+  } catch (err) {
+    res.locals.errorMessage = err.message;
+    res.status(500).json({ error: err.message || 'Server error' });
+  }
+};
+
+// POST /api/v1/futsals/register - Register futsal (for futsalOwner)
+exports.registerFutsal = async (req, res) => {
+  try {
+    const user = req.user;
+    // Only futsalOwner or admin can register futsal
+    if (user.role !== 'futsalOwner' && user.role !== 'admin') {
+      return res.status(403).json({
+        error: 'Only futsal owners can register a futsal. Please register as a futsal owner first.',
+      });
+    }
+    // Only accept basePrice from request
+    const { name, location, contactInfo, basePrice, amenities, images, description, rules } =
+      req.body;
+
+    // Set expiryDate to 7 days from now
+    const expiryDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
+    // Create futsal with basePrice only
+    const futsal = await Futsal.create({
+      name,
+      owner: user._id,
+      location,
+      contactInfo,
+      pricing: { basePrice },
+      amenities,
+      images,
+      description,
+      rules,
+      registrationFeeStatus: { paid: false, expiryDate },
+      isActive: false,
+    });
+
+    // Fetch futsal owner email
+    const owner = await User.findById(futsal.owner);
+    if (owner && owner.email) {
+      const subject = 'Futsal Registration: Complete Your Payment';
+      const html = `<p>Dear ${owner.username || 'Owner'},</p>
+        <p>Your futsal <b>${futsal.name}</b> has been registered successfully.</p>
+        <p>Please pay the registration fee within 7 days to activate your futsal. If you have already paid, you can ignore this message.</p>
+        <p>Thank you,<br/>Futsal App Team</p>`;
+      await sendMail({ to: owner.email, subject, html });
+    }
+
+    res
+      .status(201)
+      .json({ message: 'Futsal registered. Please pay registration fee within 7 days.', futsal });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Server error' });
+  }
+};
+
+// POST /api/v1/futsals/pay-registration - Pay registration fee for futsal
+exports.payFutsalRegistration = async (req, res) => {
+  try {
+    const { futsalId, paymentToken } = req.body;
+    const user = req.user;
+
+    // Find futsal and check ownership
+    const futsal = await Futsal.findById(futsalId);
+    if (!futsal) return res.status(404).json({ error: 'Futsal not found' });
+    if (!futsal.owner.equals(user._id) && user.role !== 'admin') {
+      return res.status(403).json({ error: 'Not authorized to pay for this futsal' });
+    }
+    if (futsal.registrationFeeStatus.paid) {
+      return res.status(400).json({ error: 'Registration fee already paid' });
+    }
+
+    // Verify payment with Khalti (now only needs paymentToken/pidx)
+    const paymentSuccess = await verifyKhaltiPayment(paymentToken);
+    if (!paymentSuccess) {
+      return res.status(400).json({ error: 'Payment failed or invalid' });
+    }
+
+    // Mark futsal as active and registration fee as paid
+    futsal.registrationFeeStatus.paid = true;
+    futsal.isActive = true;
+    await futsal.save();
+
+    // Set isActiveOwner=true for the futsal owner if not already set
+    const owner = await User.findById(futsal.owner);
+    if (owner && owner.role === 'futsalOwner' && !owner.isActiveOwner) {
+      owner.isActiveOwner = true;
+      await owner.save();
+    }
+
+    res.json({ message: 'Registration fee paid. Futsal is now active!', futsal });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Server error' });
+  }
+};
+
+// GET /api/futsals/nearby?lng=...&lat=...&radius=... (radius in meters, default 3000)
+exports.getNearbyFutsals = async (req, res) => {
+  try {
+    const { lng, lat, radius = 3000 } = req.query;
+    if (!lng || !lat) {
+      return res.status(400).json({ message: 'lng and lat are required' });
+    }
+    const futsals = await Futsal.find({
+      'location.coordinates': {
+        $near: {
+          $geometry: { type: 'Point', coordinates: [parseFloat(lng), parseFloat(lat)] },
+          $maxDistance: parseInt(radius),
+        },
+      },
+      isActive: true,
+    }).limit(20);
+    res.json({ futsals });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Server error' });
+  }
+};
+
+// POST /api/futsals/upload-image
+exports.uploadFutsalImage = async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No image file provided' });
+    const futsalId = req.body.futsalId;
+    if (!futsalId) return res.status(400).json({ error: 'No futsalId provided' });
+    const futsal = await Futsal.findById(futsalId);
+    if (!futsal) return res.status(404).json({ error: 'Futsal not found' });
+    // Upload image
+    const result = await uploadImage(req.file.path, `futsals/${futsalId}`);
+    futsal.images.push(result.secure_url);
+    await futsal.save();
+    res.status(200).json({ url: result.secure_url });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Image upload failed' });
+  }
+};
+
+// PUT /api/futsals/:id/update-image
+exports.updateFutsalImage = async (req, res) => {
+  try {
+    const futsalId = req.params.id;
+    if (!req.file) return res.status(400).json({ error: 'No image file provided' });
+    const futsal = await Futsal.findById(futsalId);
+    if (!futsal) return res.status(404).json({ error: 'Futsal not found' });
+    // Optionally delete old image if public_id is provided
+    if (req.body.oldPublicId) await deleteImage(req.body.oldPublicId);
+    const result = await uploadImage(req.file.path, `futsals/${futsalId}`);
+    futsal.images.push(result.secure_url);
+    await futsal.save();
+    res.status(200).json({ url: result.secure_url });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Image update failed' });
+  }
+};
+
+
+
+===== File: /home/d1e/Playground/futsal/backend/src/controllers/userController.js =====
+const User = require('../models/User');
+const jwt = require('jsonwebtoken');
+const config = require('../config');
+const { validationResult } = require('express-validator');
+const crypto = require('crypto');
+const { sendMail } = require('../utils/email');
+const Session = require('../models/Session');
+const futsalOwnerActivationTemplate = require('../utils/emailTemplates/futsalOwnerActivation');
+const { uploadImage, deleteImage } = require('../utils/cloudinary');
+
+const generateToken = (user) => {
+  return jwt.sign({ id: user._id, role: user.role }, config.jwtSecret, { expiresIn: '7d' });
+};
+
+// Helper to generate refresh token
+const generateRefreshToken = (user) => {
+  return jwt.sign({ id: user._id, role: user.role }, config.jwtSecret, { expiresIn: '30d' });
+};
+
+exports.register = async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    res.locals.errorMessage = JSON.stringify(errors.array());
+    return res.status(400).json({ errors: errors.array() });
+  }
+  try {
+    const { email, password, role, phone, fullName } = req.body;
+    const userExists = await User.findOne({ $or: [{ email }, { phone }] });
+    if (userExists) {
+      res.locals.errorMessage = 'User already exists';
+      return res.status(400).json({ error: 'User already exists' });
+    }
+    // Build user object based on role
+    let userObj = { email, password, role, phone, fullName };
+    if (role === 'user') {
+      userObj.favoritesFutsal = [];
+      userObj.bookingHistory = [];
+    }
+    if (role === 'futsalOwner') {
+      userObj.isActiveOwner = false;
+    }
+    const user = await User.create(userObj);
+    const token = generateToken(user);
+
+    // Send futsal owner activation email if role is futsalOwner
+    if (role === 'futsalOwner') {
+      const html = futsalOwnerActivationTemplate({ fullName });
+      await sendMail({
+        to: email,
+        subject: 'Futsal Owner Account Created - Activation Required',
+        html,
+      });
+    }
+
+    res.status(201).json({
+      user: {
+        id: user._id,
+        email: user.email,
+        role: user.role,
+        phone: user.phone,
+        fullName: user.fullName,
+      },
+      token,
+    });
+  } catch (err) {
+    res.locals.errorMessage = err.message;
+    res.status(500).json({ error: err.message || 'Server error' });
+  }
+};
+
+// -- LOGIN: Set tokens as HttpOnly cookies --
+exports.login = async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    res.locals.errorMessage = JSON.stringify(errors.array());
+    return res.status(400).json({ errors: errors.array() });
+  }
+  try {
+    const { email, password } = req.body;
+    const user = await User.findOne({ email });
+    if (!user) {
+      res.locals.errorMessage = 'No user registered';
+      return res.status(400).json({ error: 'No user registered' });
+    }
+    // Check if account is locked
+    if (user.lockUntil && user.lockUntil > Date.now()) {
+      return res.status(423).json({
+        error: 'Account is locked due to too many failed login attempts. Try again later.',
+      });
+    }
+    const isMatch = await user.comparePassword(password);
+    if (!isMatch) {
+      user.loginAttempts = (user.loginAttempts || 0) + 1;
+      // Lock account after 5 failed attempts for 1 hour
+      if (user.loginAttempts >= 5) {
+        user.lockUntil = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+      }
+      await user.save();
+      res.locals.errorMessage = 'Invalid credentials.Please try again.';
+      return res.status(400).json({ error: 'Invalid credentials.Please try again.' });
+    }
+    // Reset login attempts and lockUntil on successful login
+    user.loginAttempts = 0;
+    user.lockUntil = undefined;
+    await user.save();
+    const token = generateToken(user);
+    const refreshToken = generateRefreshToken(user);
+    await Session.create({ user: user._id, token: refreshToken });
+    // Set cookies
+    res.cookie('accessToken', token, {
+      httpOnly: true,
+      secure: config.nodeEnv === 'production',
+      sameSite: 'strict',
+      maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
+    });
+    res.cookie('refreshToken', refreshToken, {
+      httpOnly: true,
+      secure: config.nodeEnv === 'production',
+      sameSite: 'strict',
+      maxAge: 1000 * 60 * 60 * 24 * 30, // 30 days
+    });
+    res.json({
+      user: {
+        id: user._id,
+        email: user.email,
+        role: user.role,
+        phone: user.phone,
+        fullName: user.fullName,
+      },
+    });
+  } catch (err) {
+    res.locals.errorMessage = err.message;
+    res.status(500).json({ error: err.message || 'Server error' });
+  }
+};
+
+exports.getProfile = async (req, res) => {
+  res.json({ user: req.user });
+};
+
+exports.forgotPassword = async (req, res) => {
+  const { email } = req.body;
+  try {
+    const user = await User.findOne({ email });
+    if (!user) {
+      res.locals.errorMessage = 'If that email is registered, a reset link has been sent.';
+      return res
+        .status(200)
+        .json({ message: 'If that email is registered, a reset link has been sent.' });
+    }
+    // Generate token
+    const token = crypto.randomBytes(32).toString('hex');
+    user.resetPasswordToken = token;
+    user.resetPasswordExpires = Date.now() + 1000 * 60 * 60; // 1 hour
+    await user.save();
+    // Send email
+    const resetUrl = `${config.frontendUrl}/reset-password?token=${token}&email=${encodeURIComponent(email)}`;
+    const html = `<p>You requested a password reset for your Futsal account.</p><p><a href="${resetUrl}">Click here to reset your password</a></p><p>If you did not request this, please ignore this email.</p>`;
+    await sendMail({ to: email, subject: 'Password Reset', html });
+    res.status(200).json({ message: 'If that email is registered, a reset link has been sent.' });
+  } catch (err) {
+    res.locals.errorMessage = err.message;
+    res.status(500).json({ error: err.message || 'Server error' });
+  }
+};
+
+exports.resetPassword = async (req, res) => {
+  const { token, email, password } = req.body;
+  try {
+    const user = await User.findOne({
+      email,
+      resetPasswordToken: token,
+      resetPasswordExpires: { $gt: Date.now() },
+    });
+    if (!user) {
+      res.locals.errorMessage = 'Invalid or expired token';
+      return res.status(400).json({ error: 'Invalid or expired token' });
+    }
+    user.password = password;
+    user.resetPasswordToken = undefined;
+    user.resetPasswordExpires = undefined;
+    await user.save();
+    // Send confirmation email
+    const html = `<p>Your password has been reset successfully. If you did not perform this action, please contact support immediately.</p>`;
+    await sendMail({ to: user.email, subject: 'Password Reset Successful', html });
+    res.status(200).json({ message: 'Password has been reset successfully.' });
+  } catch (err) {
+    res.locals.errorMessage = err.message;
+    res.status(500).json({ error: err.message || 'Server error' });
+  }
+};
+
+// -- REFRESH TOKEN: Use HttpOnly cookie --
+exports.refreshToken = async (req, res) => {
+  const refreshToken = req.cookies.refreshToken;
+  if (!refreshToken) {
+    res.locals.errorMessage = 'Refresh token is required';
+    return res.status(400).json({ error: 'Refresh token is required' });
+  }
+  try {
+    const payload = jwt.verify(refreshToken, config.jwtSecret);
+    const session = await Session.findOne({ user: payload.id, token: refreshToken });
+    if (!session) {
+      res.locals.errorMessage = 'Invalid refresh token';
+      return res.status(401).json({ error: 'Invalid refresh token' });
+    }
+    const user = await User.findById(payload.id);
+    if (!user) {
+      res.locals.errorMessage = 'User not found';
+      return res.status(404).json({ error: 'User not found' });
+    }
+    const newToken = generateToken(user);
+    res.cookie('accessToken', newToken, {
+      httpOnly: true,
+      secure: config.nodeEnv === 'production',
+      sameSite: 'strict',
+      maxAge: 1000 * 60 * 60 * 24 * 7,
+    });
+    res.json({ message: 'Token refreshed' });
+  } catch (err) {
+    res.locals.errorMessage = err.message;
+    res.status(401).json({ error: err.message || 'Invalid refresh token' });
+  }
+};
+
+// -- LOGOUT: Clear cookies --
+exports.logout = async (req, res) => {
+  try {
+    const refreshToken = req.cookies.refreshToken;
+    if (!refreshToken) {
+      return res.status(400).json({ error: 'Refresh token required' });
+    }
+    await Session.deleteOne({ token: refreshToken });
+    res.clearCookie('accessToken');
+    res.clearCookie('refreshToken');
+    res.status(200).json({ message: 'Logged out successfully' });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Server error' });
+  }
+};
+
+// Schedule futsal owner for deletion (soft delete, 24h restore window)
+exports.scheduleOwnerDeletion = async (req, res) => {
+  try {
+    const owner = await User.findById(req.params.id);
+    if (!owner || owner.role !== 'futsalOwner') {
+      return res.status(404).json({ message: 'Owner not found' });
+    }
+    if (owner.isDeleted) {
+      return res.status(400).json({ message: 'Already scheduled for deletion' });
+    }
+    owner.scheduledDeletion = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24h from now
+    owner.isDeleted = false;
+    await owner.save();
+    // Notify owner
+    if (owner.email) {
+      const html = `<p>Your futsal owner account and all related data (futsal, bookings) will be permanently deleted in 24 hours unless restored. If this was not intended, please contact support or restore your account within the next 24 hours.</p>`;
+      await sendMail({ to: owner.email, subject: 'Account Deletion Scheduled', html });
+    }
+    res.json({ message: 'Owner scheduled for deletion in 24 hours.' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// Restore owner before hard deletion
+exports.restoreOwner = async (req, res) => {
+  try {
+    const owner = await User.findById(req.params.id);
+    if (!owner || owner.role !== 'futsalOwner') {
+      return res.status(404).json({ message: 'Owner not found' });
+    }
+    if (!owner.scheduledDeletion || owner.isDeleted) {
+      return res.status(400).json({ message: 'Owner is not scheduled for deletion' });
+    }
+    owner.scheduledDeletion = undefined;
+    owner.isDeleted = false;
+    await owner.save();
+    res.json({ message: 'Owner account restored.' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// Add a futsal to user's favourites
+exports.addFutsalToFavourites = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const { futsalId } = req.params;
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ message: 'User not found' });
+    if (!user.favoritesFutsal) user.favoritesFutsal = [];
+    if (user.favoritesFutsal.includes(futsalId)) {
+      return res.status(400).json({ message: 'Futsal already in favourites' });
+    }
+    user.favoritesFutsal.push(futsalId);
+    await user.save();
+    res.json({ message: 'Futsal added to favourites', favorites: user.favoritesFutsal });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// Remove a futsal from user's favourites
+exports.removeFutsalFromFavourites = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const { futsalId } = req.params;
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ message: 'User not found' });
+    user.favoritesFutsal = user.favoritesFutsal.filter((id) => id.toString() !== futsalId);
+    await user.save();
+    res.json({ message: 'Futsal removed from favourites', favorites: user.favoritesFutsal });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// Get user's favourite futsals
+exports.getFavouriteFutsals = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const user = await User.findById(userId).populate('favoritesFutsal');
+    if (!user) return res.status(404).json({ message: 'User not found' });
+    res.json({ favorites: user.favoritesFutsal });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// POST /api/users/upload-profile-image
+exports.uploadProfileImage = async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No image file provided' });
+    const userId = req.user._id;
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    // Upload image
+    const result = await uploadImage(req.file.path, `profiles/${userId}`);
+    user.profileImage = result.secure_url;
+    await user.save();
+    res.status(200).json({ url: result.secure_url });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Profile image upload failed' });
+  }
+};
+
+// PUT /api/users/update-profile-image
+exports.updateProfileImage = async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No image file provided' });
+    const userId = req.user._id;
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    // Optionally delete old image if public_id is provided
+    if (req.body.oldPublicId) await deleteImage(req.body.oldPublicId);
+    const result = await uploadImage(req.file.path, `profiles/${userId}`);
+    user.profileImage = result.secure_url;
+    await user.save();
+    res.status(200).json({ url: result.secure_url });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Profile image update failed' });
+  }
+};
+
+// Permanently delete a user and their profile image from Cloudinary
+exports.deleteUser = async (req, res) => {
+  try {
+    const user = await User.findByIdAndDelete(req.params.id);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    // Delete user profile image from Cloudinary if present
+    if (user.profileImage) {
+      // Try to extract public_id from the URL
+      const match = user.profileImage.match(/\/profiles\/([^/.]+)\/(.+)\.[a-zA-Z]+$/);
+      if (match) {
+        const publicId = `profiles/${match[1]}/${match[2]}`;
+        await deleteImage(publicId).catch(() => {});
+      }
+    }
+    res.json({ message: 'User deleted' });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Server error' });
+  }
+};
+
+
+
+===== File: /home/d1e/Playground/futsal/backend/src/controllers/adminAnalyticsController.js =====
+const User = require('../models/User');
+const Futsal = require('../models/Futsal');
+const Booking = require('../models/Booking');
+const Transaction = require('../models/Transaction');
+const mongoose = require('mongoose');
+
+// 1. Platform Overview
+exports.getOverview = async (req, res) => {
+  try {
+    const [userStats, futsalStats, bookingStats, revenueStats, transactionStats] =
+      await Promise.all([
+        User.aggregate([{ $group: { _id: '$role', count: { $sum: 1 } } }]),
+        Futsal.aggregate([
+          {
+            $group: {
+              _id: { isActive: '$isActive', isVerified: '$isVerified' },
+              count: { $sum: 1 },
+            },
+          },
+        ]),
+        Booking.aggregate([{ $group: { _id: '$status', count: { $sum: 1 } } }]),
+        Booking.aggregate([
+          { $match: { paymentStatus: 'paid' } },
+          { $group: { _id: null, total: { $sum: '$totalPrice' } } },
+        ]),
+        Transaction.aggregate([{ $group: { _id: '$type', count: { $sum: 1 } } }]),
+      ]);
+    res.json({
+      userStats,
+      futsalStats,
+      bookingStats,
+      revenue: revenueStats[0]?.total || 0,
+      transactionStats,
+    });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// 2. Time Series Analytics
+exports.getRegistrations = async (req, res) => {
+  try {
+    const { period = 'monthly' } = req.query;
+    const groupBy =
+      period === 'daily'
+        ? {
+            year: { $year: '$createdAt' },
+            month: { $month: '$createdAt' },
+            day: { $dayOfMonth: '$createdAt' },
+          }
+        : period === 'weekly'
+          ? { year: { $year: '$createdAt' }, week: { $week: '$createdAt' } }
+          : { year: { $year: '$createdAt' }, month: { $month: '$createdAt' } };
+    const data = await User.aggregate([
+      { $group: { _id: groupBy, count: { $sum: 1 } } },
+      { $sort: { '_id.year': 1, '_id.month': 1, '_id.day': 1, '_id.week': 1 } },
+    ]);
+    res.json({ data });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+exports.getBookings = async (req, res) => {
+  try {
+    const { period = 'monthly' } = req.query;
+    const groupBy =
+      period === 'daily'
+        ? {
+            year: { $year: '$createdAt' },
+            month: { $month: '$createdAt' },
+            day: { $dayOfMonth: '$createdAt' },
+          }
+        : period === 'weekly'
+          ? { year: { $year: '$createdAt' }, week: { $week: '$createdAt' } }
+          : { year: { $year: '$createdAt' }, month: { $month: '$createdAt' } };
+    const data = await Booking.aggregate([
+      { $group: { _id: groupBy, count: { $sum: 1 } } },
+      { $sort: { '_id.year': 1, '_id.month': 1, '_id.day': 1, '_id.week': 1 } },
+    ]);
+    res.json({ data });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+exports.getRevenue = async (req, res) => {
+  try {
+    const { period = 'monthly' } = req.query;
+    const groupBy =
+      period === 'daily'
+        ? {
+            year: { $year: '$paymentDetails.paymentDate' },
+            month: { $month: '$paymentDetails.paymentDate' },
+            day: { $dayOfMonth: '$paymentDetails.paymentDate' },
+          }
+        : period === 'weekly'
+          ? {
+              year: { $year: '$paymentDetails.paymentDate' },
+              week: { $week: '$paymentDetails.paymentDate' },
+            }
+          : {
+              year: { $year: '$paymentDetails.paymentDate' },
+              month: { $month: '$paymentDetails.paymentDate' },
+            };
+    const data = await Booking.aggregate([
+      { $match: { paymentStatus: 'paid' } },
+      { $group: { _id: groupBy, total: { $sum: '$totalPrice' } } },
+      { $sort: { '_id.year': 1, '_id.month': 1, '_id.day': 1, '_id.week': 1 } },
+    ]);
+    res.json({ data });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// 3. Top/Bottom Performers
+exports.getTopFutsals = async (req, res) => {
+  try {
+    const { limit = 10, period = 'all' } = req.query;
+    let match = {};
+    if (period !== 'all') {
+      const start = new Date();
+      if (period === 'monthly') start.setMonth(start.getMonth() - 1);
+      if (period === 'weekly') start.setDate(start.getDate() - 7);
+      match = { createdAt: { $gte: start } };
+    }
+    const data = await Booking.aggregate([
+      { $match: match },
+      { $group: { _id: '$futsal', bookings: { $sum: 1 }, revenue: { $sum: '$totalPrice' } } },
+      { $sort: { bookings: -1, revenue: -1 } },
+      { $limit: parseInt(limit) },
+      { $lookup: { from: 'futsals', localField: '_id', foreignField: '_id', as: 'futsal' } },
+      { $unwind: '$futsal' },
+    ]);
+    res.json({ data });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+exports.getTopUsers = async (req, res) => {
+  try {
+    const { limit = 10, period = 'all' } = req.query;
+    let match = {};
+    if (period !== 'all') {
+      const start = new Date();
+      if (period === 'monthly') start.setMonth(start.getMonth() - 1);
+      if (period === 'weekly') start.setDate(start.getDate() - 7);
+      match = { createdAt: { $gte: start } };
+    }
+    const data = await Booking.aggregate([
+      { $match: match },
+      { $group: { _id: '$user', bookings: { $sum: 1 } } },
+      { $sort: { bookings: -1 } },
+      { $limit: parseInt(limit) },
+      { $lookup: { from: 'users', localField: '_id', foreignField: '_id', as: 'user' } },
+      { $unwind: '$user' },
+    ]);
+    res.json({ data });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+exports.getLowPerformingFutsals = async (req, res) => {
+  try {
+    const { limit = 10, period = 'all' } = req.query;
+    let match = {};
+    if (period !== 'all') {
+      const start = new Date();
+      if (period === 'monthly') start.setMonth(start.getMonth() - 1);
+      if (period === 'weekly') start.setDate(start.getDate() - 7);
+      match = { createdAt: { $gte: start } };
+    }
+    const data = await Booking.aggregate([
+      { $match: match },
+      { $group: { _id: '$futsal', bookings: { $sum: 1 }, revenue: { $sum: '$totalPrice' } } },
+      { $sort: { bookings: 1, revenue: 1 } },
+      { $limit: parseInt(limit) },
+      { $lookup: { from: 'futsals', localField: '_id', foreignField: '_id', as: 'futsal' } },
+      { $unwind: '$futsal' },
+    ]);
+    res.json({ data });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// 4. Geographical Analytics
+exports.getFutsalsByLocation = async (req, res) => {
+  try {
+    const data = await Futsal.aggregate([
+      {
+        $group: {
+          _id: { city: '$location.city', district: '$location.district' },
+          count: { $sum: 1 },
+        },
+      },
+    ]);
+    res.json({ data });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+exports.getBookingsByLocation = async (req, res) => {
+  try {
+    const data = await Booking.aggregate([
+      { $lookup: { from: 'futsals', localField: 'futsal', foreignField: '_id', as: 'futsal' } },
+      { $unwind: '$futsal' },
+      {
+        $group: {
+          _id: { city: '$futsal.location.city', district: '$futsal.location.district' },
+          count: { $sum: 1 },
+        },
+      },
+    ]);
+    res.json({ data });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// 5. Other Stats
+exports.getActiveVsInactiveFutsals = async (req, res) => {
+  try {
+    const data = await Futsal.aggregate([{ $group: { _id: '$isActive', count: { $sum: 1 } } }]);
+    res.json({ data });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+exports.getCancellations = async (req, res) => {
+  try {
+    const data = await Booking.aggregate([
+      { $match: { status: 'cancelled' } },
+      { $group: { _id: { futsal: '$futsal', user: '$user' }, count: { $sum: 1 } } },
+    ]);
+    res.json({ data });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+exports.getHolidayImpact = async (req, res) => {
+  try {
+    // Bookings/revenue on holidays vs regular days
+    const holidays = await require('../models/Holiday').find();
+    const holidayDates = holidays.map((h) => h.date.toISOString().slice(0, 10));
+    const data = await Booking.aggregate([
+      { $addFields: { dateStr: { $dateToString: { format: '%Y-%m-%d', date: '$date' } } } },
+      {
+        $group: {
+          _id: { isHoliday: { $in: ['$dateStr', holidayDates] } },
+          bookings: { $sum: 1 },
+          revenue: { $sum: '$totalPrice' },
+        },
+      },
+    ]);
+    res.json({ data });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+
+

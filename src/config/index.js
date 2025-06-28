@@ -16,5 +16,15 @@ module.exports = {
     pass: process.env.SMTP_PASS,
     from: process.env.SMTP_FROM,
   },
-  frontendUrl: process.env.FRONTEND_URL || 'http://localhost:3000',
+  frontendUrl: process.env.FRONTEND_URL,
+  khaltiSecretKey: process.env.KHALTI_SECRET_KEY,
+  cloudinary: {
+    cloudName: process.env.CLOUDINARY_CLOUD_NAME,
+    apiKey: process.env.CLOUDINARY_API_KEY,
+    apiSecret: process.env.CLOUDINARY_API_SECRET,
+  },
+  redis: {
+    host: process.env.REDIS_HOST,
+    port: process.env.REDIS_PORT,
+  },
 };

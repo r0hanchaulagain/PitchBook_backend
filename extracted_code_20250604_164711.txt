@@ -1,0 +1,1024 @@
+===== File: /home/d1e/Playground/futsal/backend/api_docs/cron_tasks.md =====
+# Cron Tasks Documentation
+
+This document describes all scheduled (cron) jobs running in the Futsal Management System backend.
+
+---
+
+## 1. Booking Reminder Job
+- **File:** `src/jobs/bookingReminderJob.js`
+- **Schedule:** Every day at 10:00 AM
+- **Purpose:**
+  - Sends reminder emails to users with bookings scheduled for the next day (if booking was created more than 1 day in advance).
+- **Logic:**
+  - Finds all bookings for tomorrow with status 'pending' or 'confirmed'.
+  - Sends reminder email to the user for each booking.
+
+---
+
+## 2. Owner Deletion Cascade & Hard Deletion Job
+- **File:** `src/jobs/ownerDeletionJob.js`
+- **Schedule:** Every hour (at minute 0)
+- **Purpose:**
+  - Performs hard deletion of futsal owner accounts, their futsals, and related bookings if not restored within 24 hours of scheduling deletion.
+  - Sends cancellation emails to users with active bookings for deleted futsals.
+- **Logic:**
+  - Finds all futsal owners scheduled for deletion whose 24-hour window has expired.
+  - For each, deletes all owned futsals and related bookings, then deletes the owner account.
+  - Notifies users with active bookings of cancellation due to deletion.
+
+---
+
+## Adding More Cron Jobs
+- Place new cron jobs in the `src/jobs/` directory.
+- Document their schedule, purpose, and logic here for maintainability.
+
+---
+
+*For questions or to add new scheduled tasks, contact the backend team.*
+
+
+
+===== File: /home/d1e/Playground/futsal/backend/api_docs/futsals.md =====
+# Futsal API - Query Parameters Documentation
+
+## Endpoint
+
+`GET /api/v1/futsals`
+
+## Query Parameters
+
+| Query Param | Type   | Description                                                            | Example               |
+|-------------|--------|------------------------------------------------------------------------|-----------------------|
+| search      | string | Search by futsal name (case-insensitive, partial match)                | `?search=arena`       |
+| city        | string | Filter by city (exact match, case-sensitive)                           | `?city=Kathmandu`     |
+| district    | string | Filter by district (exact match, case-sensitive)                       | `?district=Lalitpur`  |
+| page        | int    | Page number for pagination (defaults to 1 if not provided)             | `?page=2`             |
+| limit       | int    | Number of results per page (defaults to 15 if not provided)            | `?limit=20`           |
+| minRating   | float  | Filter by minimum average rating (inclusive)                           | `?minRating=4.0`      |
+
+## Example Requests
+
+- Get all futsals in Kathmandu, 20 per page, page 2:
+  ```http
+  GET /api/v1/futsals?city=Kathmandu&limit=20&page=2
+  ```
+- Search futsals with "arena" in their name, in Lalitpur district:
+  ```http
+  GET /api/v1/futsals?search=arena&district=Lalitpur
+  ```
+- Get the first 15 futsals (default):
+  ```http
+  GET /api/v1/futsals
+  ```
+- Get futsals with average rating ≥ 4.0:
+  ```http
+  GET /api/v1/futsals?minRating=4.0
+  ```
+
+---
+
+> **Note:** All parameters are optional. Pagination is enabled by default with a limit of 15 per page.
+
+---
+
+## Get Nearby Futsals
+- **GET** `/api/futsals/nearby?lng=NUMBER&lat=NUMBER&radius=NUMBER`
+- **Query Params:**
+  - `lng` (Number, required): Longitude of user location
+  - `lat` (Number, required): Latitude of user location
+  - `radius` (Number, optional, meters, default 3000): Search radius
+- **Response:**
+  - `200 OK` with array of futsals sorted by distance
+  - Each futsal includes its coordinates, name, pricing, and other info
+
+## Example React Integration
+
+```js
+// Example: Fetch nearby futsals from React frontend
+const fetchNearbyFutsals = async (lng, lat, radius = 3000) => {
+  const res = await fetch(`/api/futsals/nearby?lng=${lng}&lat=${lat}&radius=${radius}`);
+  if (!res.ok) throw new Error('Failed to fetch');
+  return res.json();
+};
+
+// Usage in a React component
+useEffect(() => {
+  navigator.geolocation.getCurrentPosition(pos => {
+    fetchNearbyFutsals(pos.coords.longitude, pos.coords.latitude)
+      .then(data => setFutsals(data.futsals));
+  });
+}, []);
+
+---
+
+## Dynamic Pricing
+- Each futsal has a `pricing` object:
+  - `basePrice`: Default price per hour
+  - `rules`: Array of dynamic pricing rules:
+    - `day`: e.g. 'saturday', 'holiday', or 'any'
+    - `start`/`end`: Time range ("HH:MM")
+    - `price`: Price for that slot
+  - `ratingModifier`: Price modifier based on average rating
+  - `distanceModifier`: Price modifier based on distance (if location provided)
+  - `dynamicPrice`: Final price after all modifiers
+- **How it works:**
+  - When creating a booking, backend uses these rules to determine the price for the selected day and time.
+  - Example:
+    ```json
+    {
+      "basePrice": 2000,
+      "rules": [
+        { "day": "saturday", "start": "18:00", "end": "22:00", "price": 2500 },
+        { "day": "any", "start": "06:00", "end": "09:00", "price": 1500 }
+      ],
+      "ratingModifier": 0.1, // +10% for avg. rating ≥ 4.5
+      "distanceModifier": 0.05, // +5% for distance > 5km
+      "dynamicPrice": 2200
+    }
+    ```
+
+- **Frontend integration:**
+  - Fetch futsal details and show pricing calendar or slot picker.
+  - To preview price for a slot, send booking details to backend, or replicate pricing logic in JS for instant feedback.
+
+---
+
+## Rating-based Dynamic Pricing and Filtering
+- You can now filter futsals by average rating using the `minRating` query param:
+  - Example: `/api/futsals?minRating=4.0` (returns futsals with avg. rating ≥ 4.0)
+- Each futsal response includes:
+  - `avgRating` (average rating)
+  - `reviewCount` (number of reviews)
+- Dynamic pricing now includes a rating modifier:
+  - **+10%** if average rating ≥ 4.5
+  - **+5%** if average rating ≥ 4.0
+  - **-10%** if average rating ≤ 2.5
+- The response includes `ratingModifier` in the pricing object.
+
+---
+
+*For more endpoints, see bookings.md or contact the backend team.*
+
+
+
+===== File: /home/d1e/Playground/futsal/backend/api_docs/notifications.md =====
+# Real-Time Notifications API
+
+This system provides real-time notifications for booking payments and reminders, using HTTP polling as the default method. Socket-based push can be added if polling is insufficient.
+
+---
+
+## Notification Model
+- `user`: User receiving the notification
+- `message`: Notification message
+- `type`: Notification type (e.g., `booking_payment`, `reminder`)
+- `isRead`: Boolean
+- `createdAt`: Timestamp
+
+---
+
+## Endpoints
+
+### 1. Get Unread Notifications (HTTP Polling)
+`GET /api/notifications`
+- **Auth:** User (required)
+- **Returns:** List of unread notifications for the logged-in user, sorted by `createdAt` (desc)
+
+### 2. Mark Notifications as Read
+`POST /api/notifications/mark-read`
+- **Auth:** User (required)
+- **Body:** `{ ids: [<notificationId>, ...] }`
+- **Returns:** Success message
+
+---
+
+## Usage
+- The frontend polls `/api/notifications` every 10–30 seconds to fetch new notifications.
+- Mark notifications as read after displaying to the user.
+
+---
+
+## Notification Triggers
+- **Booking Payment:** When a booking payment is made, a notification is created for the user (and optionally futsal owner).
+- **Reminders:** Scheduled job creates a reminder notification X minutes/hours before booking time.
+
+---
+
+## Optional: Push via Socket.IO
+- If polling is insufficient (for instant updates), integrate Socket.IO for push notifications.
+- The backend emits new notifications to connected clients in real time.
+
+---
+
+## Example Notification Object
+```json
+{
+  "_id": "...",
+  "user": "...",
+  "message": "Your booking payment was successful!",
+  "type": "booking_payment",
+  "isRead": false,
+  "createdAt": "2025-04-21T23:07:16+05:45"
+}
+```
+
+---
+
+*For reminders, ensure a scheduled job (cron or similar) runs to create notifications ahead of booking times.*
+
+
+
+===== File: /home/d1e/Playground/futsal/backend/api_docs/admin_analytics.md =====
+# Admin Analytics API Documentation
+
+All endpoints are `GET` and require admin authentication.
+
+---
+
+## 1. Platform Overview
+
+### `GET /api/admin/analytics/overview`
+- **Returns:**
+  - User stats (by role)
+  - Futsal stats (active/inactive/verified)
+  - Booking stats (by status)
+  - Total revenue
+  - Transaction stats (by type)
+
+---
+
+## 2. Time Series Analytics
+
+### `GET /api/admin/analytics/registrations?period=monthly|weekly|daily`
+- **Returns:** User registrations count over time.
+
+### `GET /api/admin/analytics/bookings?period=monthly|weekly|daily`
+- **Returns:** Bookings count over time.
+
+### `GET /api/admin/analytics/revenue?period=monthly|weekly|daily`
+- **Returns:** Revenue generated over time.
+
+---
+
+## 3. Top/Bottom Performers
+
+### `GET /api/admin/analytics/top-futsals?limit=10&period=monthly|all`
+- **Returns:** Top futsals by bookings and revenue.
+
+### `GET /api/admin/analytics/top-users?limit=10&period=monthly|all`
+- **Returns:** Most active users by bookings.
+
+### `GET /api/admin/analytics/low-performing-futsals?limit=10&period=monthly|all`
+- **Returns:** Futsals with least bookings/revenue.
+
+---
+
+## 4. Geographical Analytics
+
+### `GET /api/admin/analytics/futsals-by-location`
+- **Returns:** Number of futsals by city/district.
+
+### `GET /api/admin/analytics/bookings-by-location`
+- **Returns:** Number of bookings by city/district.
+
+---
+
+## 5. Other Useful Stats
+
+### `GET /api/admin/analytics/active-vs-inactive-futsals`
+- **Returns:** Number of active vs inactive futsals.
+
+### `GET /api/admin/analytics/cancellations`
+- **Returns:** Booking cancellation rates (overall, by futsal, by user).
+
+### `GET /api/admin/analytics/holiday-impact`
+- **Returns:** Bookings and revenue on holidays vs regular days.
+
+---
+
+## Notes
+- All endpoints return JSON.
+- Query parameters (e.g., `period`, `limit`) are optional and have sensible defaults.
+- For advanced filtering, extend endpoints as needed.
+
+
+
+===== File: /home/d1e/Playground/futsal/backend/api_docs/reviews.md =====
+# Reviews API Documentation
+
+## Create Review
+- **POST** `/api/reviews`
+- **Auth:** Required (user)
+- **Body:**
+  - `futsalId` (string, required)
+  - `rating` (number, 1-5, required)
+  - `feedback` (string, required)
+- **Rules:**
+  - Only users with a completed/confirmed booking for the futsal can review
+  - Only one review per user per futsal
+- **Response:**
+  - `201 Created` with review object
+
+## Get Reviews for Futsal
+- **GET** `/api/reviews/:futsalId`
+- **Response:**
+  - `200 OK` with array of reviews (each includes user fullName, rating, feedback, createdAt)
+
+## Delete Review
+- **DELETE** `/api/reviews/:id`
+- **Auth:** Required (user)
+- **Rules:**
+  - Only the review author can delete
+- **Response:**
+  - `200 OK` on success
+
+---
+
+*For more endpoints, see futsals.md, bookings.md, or contact the backend team.*
+
+
+
+===== File: /home/d1e/Playground/futsal/backend/api_docs/where_how_why_docker_redis_polling.md =====
+# Where, How, and Why: Docker, Redis, and Polling in the Futsal Backend
+
+This document explains **where**, **how**, and **why** Docker, Redis caching, and polling are implemented in your codebase.
+
+---
+
+## 1. Docker
+
+### Where?
+- **Dockerfile**: `/backend/Dockerfile`
+- (Optional) **Docker Compose**: `/backend/docker-compose.yml` (if you use it)
+
+### How?
+- The Dockerfile defines how to build the backend app into a container (installs dependencies, copies code, sets up the runtime).
+- You build and run the container with:
+  - `docker build -t futsal-backend .`
+  - `docker run -d -p 3000:3000 --env-file .env --env-file .env.redis futsal-backend`
+- With Docker Compose, you can run backend, MongoDB, and Redis together: `docker-compose up -d`
+
+### Why?
+- **Consistency**: Same environment everywhere (dev, test, prod).
+- **Isolation**: No conflicts with other apps or system packages.
+- **Easy deployment & scaling**: Run, stop, or scale with simple commands.
+
+---
+
+## 2. Redis Caching
+
+### Where?
+- **Redis client utility**: `/backend/src/utils/redisClient.js`
+- **Cache usage example**: `/backend/src/controllers/futsalController.js` (see `getFutsalById`)
+- **Cache invalidation**: `/backend/src/controllers/bookingController.js` (after booking/payment)
+- **Config**: `/backend/.env.redis`
+
+### How?
+- Import Redis client:
+  ```js
+  const { getAsync, setAsync, delAsync } = require('../utils/redisClient');
+  ```
+- Use `getAsync` to check cache, `setAsync` to store, `delAsync` to invalidate.
+- Example in `getFutsalById`: checks cache before querying DB, caches result for 5 minutes.
+- After bookings/payments that change futsal data, `delAsync` is used to clear the cache for that futsal.
+
+### Why?
+- **Speed**: Fast responses for frequently accessed data.
+- **Efficiency**: Reduces database load and improves scalability.
+- **User Experience**: Faster page loads for users.
+
+---
+
+## 3. Polling (Frontend)
+
+### Where?
+- **Frontend code** (not in backend): wherever you want to show real-time updates (e.g., notifications panel).
+- Example code is provided in `api_docs/redis_docker_location_polling.md`.
+
+### How?
+- Use `setInterval` in your React/Vue/JS frontend to call the notifications API every few seconds:
+  ```js
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetch('/api/notifications', { headers: { Authorization: `Bearer ${token}` } })
+        .then(res => res.json())
+        .then(data => setNotifications(data.notifications));
+    }, 10000); // every 10 seconds
+    return () => clearInterval(interval);
+  }, [token]);
+  ```
+
+### Why?
+- **Real-time feel**: Users see new notifications or updates without needing to refresh.
+- **Simplicity**: Easier to implement than websockets for most use-cases.
+
+---
+
+## Summary Table
+| Technology | Where in Codebase           | How (Key Steps)        | Why (Benefits)           |
+|------------|----------------------------|------------------------|--------------------------|
+| Docker     | Dockerfile, docker-compose  | Build, run containers  | Consistency, scaling     |
+| Redis      | utils/redisClient.js, controllers | Cache get/set/del   | Speed, efficiency        |
+| Polling    | Frontend code               | setInterval + fetch    | Real-time UX, simplicity |
+
+---
+
+If you want to see the exact code or have questions about customizing these patterns, let me know!
+
+
+
+===== File: /home/d1e/Playground/futsal/backend/api_docs/email_notifications.md =====
+# Email Notification Triggers
+
+This document describes all cases where emails are sent in the Futsal Management System backend.
+
+---
+
+## 1. Password Reset Success
+- After a user successfully resets their password, they receive a confirmation email.
+
+## 2. Booking Attempt (Slot Reserved)
+- When a booking is created (pending), the futsal owner receives an email notification.
+
+## 3. Booking Payment Success
+- When a booking is paid and confirmed, both the user and futsal owner receive confirmation emails.
+
+## 4. Booking Cancelled
+- When a booking is cancelled, both the user and futsal owner receive cancellation emails.
+
+## 5. Booking Reminder (1 Day Before)
+- Users receive a reminder email a day before their booking if the booking was created more than 1 day in advance.
+
+## 6. Futsal Details Updated
+- When futsal details are updated, the futsal owner receives an email notification.
+
+## 7. Booking/Payment Confirmations
+- All booking and payment related confirmations are sent to the respective parties (users and futsal owners).
+
+## 8. Futsal/Owner Deletion Policy
+- Futsals cannot be deleted directly. If a futsal owner account is deleted, their futsal(s) and related data are deleted, and notifications should be sent to the owner and users with affected bookings (not yet implemented).
+
+---
+
+*For more details or to extend notifications, see the backend team or this documentation.*
+
+
+
+===== File: /home/d1e/Playground/futsal/backend/api_docs/review_extensions.md =====
+# Review Extensions: How to Implement in the Future
+
+This document outlines how to extend the review system to support additional features if needed, based on the original project requirements.
+
+---
+
+## 1. Update Own Review
+- **Endpoint:** `PUT /api/reviews/:id`
+- **Logic:**
+  - Only the author (user) can update their review.
+  - Allow updating `rating` and `feedback` fields.
+- **Sample Controller Logic:**
+  ```js
+  exports.updateReview = async (req, res) => {
+    const review = await Review.findById(req.params.id);
+    if (!review) return res.status(404).json({ message: 'Not found' });
+    if (review.user.toString() !== req.user._id.toString()) return res.status(403).json({ message: 'Not authorized' });
+    if (req.body.rating) review.rating = req.body.rating;
+    if (req.body.feedback) review.feedback = req.body.feedback;
+    await review.save();
+    res.json(review);
+  };
+  ```
+
+---
+
+## 2. Owner Response to Review
+- **Endpoint:** `POST /api/reviews/:id/response`
+- **Logic:**
+  - Only the futsal owner can respond to reviews for their futsal.
+  - Add a `response` field to the Review schema: `{ response: String, responseAt: Date }`.
+- **Sample Controller Logic:**
+  ```js
+  exports.respondToReview = async (req, res) => {
+    const review = await Review.findById(req.params.id).populate('futsal');
+    if (!review) return res.status(404).json({ message: 'Not found' });
+    if (review.futsal.owner.toString() !== req.user._id.toString()) return res.status(403).json({ message: 'Not authorized' });
+    review.response = req.body.response;
+    review.responseAt = new Date();
+    await review.save();
+    res.json(review);
+  };
+  ```
+
+---
+
+## 3. Like a Review
+- **Endpoint:** `POST /api/reviews/:id/like`
+- **Logic:**
+  - Add a `likes` array to the Review schema: `[userId]`.
+  - When a user likes a review, add their userId if not already present.
+- **Sample Controller Logic:**
+  ```js
+  exports.likeReview = async (req, res) => {
+    const review = await Review.findById(req.params.id);
+    if (!review) return res.status(404).json({ message: 'Not found' });
+    if (!review.likes) review.likes = [];
+    if (!review.likes.includes(req.user._id)) {
+      review.likes.push(req.user._id);
+      await review.save();
+    }
+    res.json({ likes: review.likes.length });
+  };
+  ```
+
+---
+
+## 4. Schema Changes
+- Add the following fields to the Review schema as needed:
+  - `response: String` (owner's reply)
+  - `responseAt: Date`
+  - `likes: [ObjectId]` (user IDs who liked the review)
+
+---
+
+## 5. API Documentation
+- Document the new endpoints and fields in your API docs for frontend integration.
+
+---
+
+*These extensions can be added without breaking existing review functionality. Contact the backend team for implementation support.*
+
+
+
+===== File: /home/d1e/Playground/futsal/backend/api_docs/holiday_management.md =====
+# Holiday & Futsal Closure Management
+
+This document describes how holidays and futsal-specific closures are managed in the backend.
+
+---
+
+## Holiday Management (Admin)
+- **Endpoints:**
+  - `POST /api/holidays` — Create a holiday
+  - `GET /api/holidays` — List all holidays
+  - `PUT /api/holidays/:id` — Update a holiday
+  - `DELETE /api/holidays/:id` — Delete a holiday
+- **Purpose:**
+  - Allows admins to define public holidays or special dates that affect futsal pricing/availability.
+  - Holidays can be one-time or recurring (e.g., every year).
+
+## Futsal Closure Management (Owner/Admin)
+- **Endpoints:**
+  - `POST /api/futsals/:id/close` — Close futsal for specific dates and reasons
+  - `GET /api/futsals/:id/closures` — Get futsal closure dates/reasons
+- **Purpose:**
+  - Allows futsal owners to mark their futsal as closed for maintenance, events, or other reasons (even if not a public holiday).
+  - These closures are checked during booking and availability logic to prevent bookings on closed dates.
+
+## Data Model
+- **Holiday Schema:**
+  - `name`, `date`, `isRecurring`, `recurringDetails`
+- **Futsal Schema:**
+  - `closures`: Array of `{ date, reason }` objects
+
+## Usage in Pricing/Booking Logic
+- The system checks both the holiday calendar and futsal-specific closures when calculating dynamic pricing and checking slot availability.
+- Bookings cannot be made on futsal closure dates.
+- Holiday modifiers are applied to pricing if the booking date is a holiday.
+
+---
+
+*For further details, see the backend team or this documentation.*
+
+
+
+===== File: /home/d1e/Playground/futsal/backend/api_docs/users.md =====
+# Users API Documentation
+
+## Register
+- **POST** `/api/users/register`
+- **Body:**
+  - `username` (string, required)
+  - `email` (string, required)
+  - `password` (string, required)
+  - `fullName` (string, required)
+  - `phone` (string, required)
+- **Response:**
+  - `201 Created` with user object
+
+## Login
+- **POST** `/api/users/login`
+- **Body:**
+  - `email` (string, required)
+  - `password` (string, required)
+- **Response:**
+  - `200 OK` with user info (no tokens in response)
+  - **Sets `accessToken` and `refreshToken` as HttpOnly cookies.**
+
+## Forgot Password
+- **POST** `/api/users/forgot-password`
+- **Body:**
+  - `email` (string, required)
+- **Response:**
+  - `200 OK` (always, for security)
+
+## Reset Password
+- **POST** `/api/users/reset-password`
+- **Body:**
+  - `token` (string, required)
+  - `email` (string, required)
+  - `password` (string, required)
+- **Response:**
+  - `200 OK` with success/fail
+
+## Refresh Token
+- **POST** `/api/users/refresh-token`
+- **Cookies:**
+  - Requires `refreshToken` cookie (set at login)
+- **Response:**
+  - `200 OK` with message
+  - **Sets new `accessToken` as HttpOnly cookie.**
+
+## Logout
+- **POST** `/api/users/logout`
+- **Cookies:**
+  - Requires `refreshToken` cookie
+- **Response:**
+  - `200 OK` with message
+  - **Clears both `accessToken` and `refreshToken` cookies.**
+
+## Get Profile
+- **GET** `/api/users/me`
+- **Auth:**
+  - Requires `accessToken` cookie (set at login/refresh)
+- **Response:**
+  - `200 OK` with user data
+
+---
+
+## Other Endpoints (planned or admin)
+- Get all users, get user by ID, update/delete user, etc.
+
+*For more endpoints, see futsals.md or contact the backend team.*
+
+**Note:**
+All authentication and authorization now use secure HttpOnly cookies. The frontend must send requests with `credentials: 'include'` for cookies to be sent/received.
+
+
+
+===== File: /home/d1e/Playground/futsal/backend/api_docs/bookings.md =====
+# Bookings API Documentation
+
+## Create Booking
+- **POST** `/api/bookings`
+- **Auth:** Required (user)
+- **Body:**
+  - `futsalId` (string, required)
+  - `date` (YYYY-MM-DD, required)
+  - `startTime` (HH:MM, required)
+  - `endTime` (HH:MM, required)
+  - `bookingType` ("full" | "partial", required)
+  - `teamA` (object, required)
+  - `teamB` (object, required for full)
+  - `specialRequests` (string, optional)
+- **Rules:**
+  - Duration must be 30, 60, 90, or 120 min
+  - No slot overlap, future only, within operating hours
+  - TeamB required for full
+- **Response:**
+  - `201 Created` with booking object
+
+## Bulk Booking
+- **POST** `/api/bookings/bulk`
+- **Auth:** Required (user)
+- **Body:**
+  - `futsalId`, `startDate`, `endDate`, `startTime`, `endTime`, `daysOfWeek`, `bookingType`, `teamA`, `teamB`, `specialRequests`
+- **Rules:**
+  - Max 30 days, same validations as single booking
+- **Response:**
+  - `201 Created` with valid/invalid bookings
+
+## Get Booking
+- **GET** `/api/bookings/:id`
+- **Auth:** Required (user/admin)
+- **Response:**
+  - `200 OK` with booking object
+
+## Get All Bookings
+- **GET** `/api/bookings`
+- **Auth:** Admin only
+- **Response:**
+  - `200 OK` with array of bookings
+
+## Update Booking
+- **PUT** `/api/bookings/:id`
+- **Auth:** Required (user/admin)
+- **Body:**
+  - `specialRequests` (string, optional)
+- **Response:**
+  - `200 OK` with updated booking
+
+## Cancel Booking
+- **DELETE** `/api/bookings/:id`
+- **Auth:** Required (user/admin)
+- **Response:**
+  - `200 OK` on success
+
+## Join Booking as Team B
+- **POST** `/api/bookings/:id/join`
+- **Auth:** Required (user)
+- **Body:**
+  - `teamB` (object, required)
+- **Response:**
+  - `200 OK` with updated booking
+
+## Process Booking Payment
+- **POST** `/api/bookings/:id/payment`
+- **Auth:** Required (user)
+- **Body:**
+  - `token` (string, required)
+  - `amount` (number, required)
+- **Response:**
+  - `200 OK` with updated booking (on success)
+
+## Check Availability
+- **GET** `/api/bookings/availability/:futsalId?date=YYYY-MM-DD&startTime=HH:MM&endTime=HH:MM`
+- **Auth:** Required (user)
+- **Response:**
+  - `200 OK` with availability status or bookings for the day
+
+---
+
+# User API Documentation
+
+## Register
+- **POST** `/api/users/register`
+- **Body:** username, email, password, fullName, phone, etc.
+- **Response:** 201 Created
+
+## Login
+- **POST** `/api/users/login`
+- **Body:** email, password
+- **Response:** 200 OK with token
+
+## Forgot Password
+- **POST** `/api/users/forgot-password`
+- **Body:** email
+- **Response:** 200 OK
+
+## Reset Password
+- **POST** `/api/users/reset-password`
+- **Body:** token, email, password
+- **Response:** 200 OK
+
+## Get Profile
+- **GET** `/api/users/me`
+- **Auth:** Required
+- **Response:** 200 OK with user data
+
+---
+
+# Payments API Documentation
+
+## Verify Futsal Registration Payment
+- **POST** `/api/payments/verify`
+- **Body:** futsalId, paymentToken, amount
+- **Response:** 200 OK
+
+## Booking Payment
+- **POST** `/api/bookings/:id/payment`
+- **Body:** token, amount
+- **Response:** 200 OK on success, 400 on error
+
+---
+
+*For more endpoints, see futsals.md or contact the backend team.*
+
+
+
+===== File: /home/d1e/Playground/futsal/backend/api_docs/payments.md =====
+# Payments API Documentation
+
+## Verify Futsal Registration Payment
+- **POST** `/api/payments/verify`
+- **Body:**
+  - `futsalId` (string, required)
+  - `paymentToken` (string, required)
+  - `amount` (number, required)
+- **Response:**
+  - `200 OK` on success
+
+## Booking Payment (Planned)
+- **POST** `/api/bookings/:id/payment`
+- **Body:**
+  - `bookingId` (string, required)
+  - `token` (string, required)
+  - `amount` (number, required)
+- **Response:**
+  - `200 OK` on success, `400` on error
+
+---
+
+*For more endpoints, see bookings.md or contact the backend team.*
+
+
+
+===== File: /home/d1e/Playground/futsal/backend/api_docs/redis_docker_location_polling.md =====
+# Redis, Docker, Polling, and Maps/Location: Developer Guide
+
+This guide explains the concepts and practical steps for working with Redis caching, Docker containerization, polling for real-time data, and integrating geolocation/maps in your Futsal project.
+
+---
+
+## 1. Redis Caching vs. Normal API Responses
+
+### What is Redis Caching?
+- **Normal API:** Each request is processed by the backend, which fetches data from the database every time.
+- **With Redis:** Frequently requested data is temporarily stored in Redis (an in-memory data store). When a request comes in, the backend first checks Redis. If data is found (cache hit), it returns immediately—much faster than querying the database. If not (cache miss), it fetches from the database, returns the data, and stores it in Redis for next time.
+
+### Benefits
+- **Faster responses** for repeated requests (e.g., fetching futsal details).
+- **Reduced database load.**
+
+### How to Implement in Frontend?
+- **No changes needed on the frontend.** You call the API endpoints as usual. Caching is handled transparently by the backend.
+- **Tip:** If you want the freshest data (e.g., after a booking is made), you can force a reload or call an endpoint that invalidates the cache.
+
+## Redis Caching Example (Backend)
+
+```js
+// src/controllers/futsalController.js
+const { getAsync, setAsync, delAsync } = require('../utils/redisClient');
+
+exports.getFutsalById = async (req, res) => {
+  const cacheKey = `futsal:${req.params.id}`;
+  const cached = await getAsync(cacheKey);
+  if (cached) return res.json(JSON.parse(cached));
+  // ...fetch from DB as usual...
+  await setAsync(cacheKey, JSON.stringify(response), 'EX', 60 * 5); // Cache 5 min
+  res.json(response);
+};
+
+// Invalidate cache after booking/payment:
+await delAsync(`futsal:${futsalId}`);
+```
+
+---
+
+## 2. Dockerized Codebase vs. Normal Codebase
+
+### Normal Codebase
+- You install Node, MongoDB, Redis, and dependencies directly on your machine.
+- Environment differences can cause bugs ("works on my machine" issues).
+
+### Dockerized Codebase
+- **Docker** packages your app and its environment into a container. This container runs the same way everywhere (your laptop, server, cloud).
+- All dependencies, OS, and configs are bundled.
+
+### Why is Docker Superior?
+- **Consistency:** Same environment everywhere.
+- **Isolation:** No conflicts with other projects or system packages.
+- **Easy deployment:** Build once, run anywhere.
+- **Scalability:** Run multiple containers for load balancing.
+
+### How to Use in This Project?
+- Build: `docker build -t futsal-backend .`
+- Run: `docker run -d -p 3000:3000 --env-file .env --env-file .env.redis --name futsal-backend futsal-backend`
+- Use Docker Compose to run backend, MongoDB, and Redis together (optional, but recommended for production).
+
+## Docker Compose Example
+
+To run MongoDB, Redis, and the backend together:
+
+```yaml
+# docker-compose.yml
+version: '3.8'
+services:
+  mongo:
+    image: mongo:4.4
+    ports:
+      - "27017:27017"
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+  backend:
+    build: .
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+      - .env.redis
+    depends_on:
+      - mongo
+      - redis
+```
+
+**Basic Docker commands:**
+- Build: `docker build -t futsal-backend .`
+- Run: `docker run ...`
+- Compose up: `docker-compose up -d`
+- View logs: `docker logs futsal-backend`
+- Stop: `docker stop futsal-backend` or `docker-compose down`
+
+---
+
+## 3. Frontend Integration for Geolocation/Maps
+
+### Use Cases
+- Show futsals near the user.
+- Let users search by city/district or by map.
+
+### Steps for Integration
+1. **Get User Location:**
+   - Use the browser’s Geolocation API:
+     ```js
+     navigator.geolocation.getCurrentPosition((pos) => {
+       const { latitude, longitude } = pos.coords;
+       // Use these to call the backend
+     });
+     ```
+2. **Call Backend API:**
+   - Example endpoint: `/api/futsals/nearby?lng=...&lat=...&radius=...`
+   - Pass user's coordinates to get a list of futsals nearby.
+3. **Display on Map:**
+   - Use a map library (e.g., Google Maps JS API, Leaflet, Mapbox GL JS).
+   - Plot futsal locations using their coordinates from the API response.
+
+### Example (React + Leaflet)
+```js
+import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
+
+function FutsalMap({ futsals, userLocation }) {
+  return (
+    <MapContainer center={userLocation} zoom={13} style={{ height: '400px' }}>
+      <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+      {futsals.map(f => (
+        <Marker key={f._id} position={f.location.coordinates}>
+          <Popup>{f.name}</Popup>
+        </Marker>
+      ))}
+    </MapContainer>
+  );
+}
+```
+
+## Geolocation Error Handling & API Response Format
+
+- **Error Handling:**
+```js
+navigator.geolocation.getCurrentPosition(
+  (pos) => { /* Success */ },
+  (err) => { alert('Location access denied, showing default results.'); }
+);
+```
+- **API Response Format:**
+  - Each futsal object in `/api/futsals/nearby` response includes:
+    ```json
+    {
+      "_id": "...",
+      "name": "...",
+      "location": {
+        "coordinates": [longitude, latitude],
+        ...
+      },
+      ...
+    }
+    ```
+
+---
+
+## 4. Polling for Real-Time Data (Bonus)
+- Polling means the frontend regularly requests the latest notifications (e.g., every 10 seconds).
+- Use `setInterval` in your frontend to call the notifications endpoint and update the UI.
+
+## Polling Example (Frontend)
+
+```js
+// Poll notifications every 10 seconds
+useEffect(() => {
+  const interval = setInterval(() => {
+    fetch('/api/notifications', { headers: { Authorization: `Bearer ${token}` } })
+      .then(res => res.json())
+      .then(data => setNotifications(data.notifications));
+  }, 10000);
+  return () => clearInterval(interval);
+}, [token]);
+```
+
+---
+
+## Summary Table
+| Topic      | Backend Change Needed | Frontend Change Needed |
+|------------|----------------------|-----------------------|
+| Redis      | Yes (already done)   | No (transparent)      |
+| Docker     | Yes (already done)   | No                    |
+| Geolocation| No                   | Yes (see above)       |
+| Polling    | No                   | Yes (setInterval)     |
+
+---
+
+If you want code samples or a step-by-step for any of these, let me know!
+
+
+

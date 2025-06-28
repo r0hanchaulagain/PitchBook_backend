@@ -25,7 +25,7 @@ const upload = multer({ dest: 'uploads/' });
 const router = express.Router();
 
 // Register
-router.post('/register', registerValidator, register);
+router.post('/register-user', registerValidator, register);
 
 // Login
 router.post('/login', loginValidator, login);

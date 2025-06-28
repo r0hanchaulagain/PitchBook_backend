@@ -3,7 +3,7 @@ const futsalController = require('../controllers/futsalController');
 const { authenticate, authorize } = require('../middlewares/auth');
 const { createFutsalValidator, updateFutsalValidator } = require('../validators/futsalValidators');
 const { registerFutsalOwnerValidator } = require('../validators/futsalOwnerValidators');
-const { futsalRegistrationPaymentValidator } = require('../validators/paymentValidators');
+
 const multer = require('multer');
 const upload = multer({ dest: 'uploads/' });
 
@@ -12,17 +12,11 @@ const router = express.Router();
 // Public: Get all futsals with search/filter/pagination
 router.get('/', futsalController.getFutsals);
 
+// Add dashboard summary endpoint before '/:id' to avoid conflicts
+router.get('/dashboard-summary', futsalController.getDashboardSummary);
+
 // Public: Get futsal by id
 router.get('/:id', futsalController.getFutsalById);
-
-// Protected: Create futsal (futsalOwner, admin)
-router.post(
-  '/',
-  authenticate,
-  authorize('admin', 'futsalOwner'),
-  createFutsalValidator,
-  futsalController.createFutsal,
-);
 
 // Protected: Update futsal (futsalOwner, admin)
 router.put(
@@ -49,13 +43,6 @@ router.post(
   futsalController.registerFutsal,
 );
 
-// Pay registration fee for futsal
-router.post(
-  '/pay-registration',
-  authenticate,
-  futsalRegistrationPaymentValidator,
-  futsalController.payFutsalRegistration,
-);
 
 // Upload futsal image
 router.post(
@@ -73,6 +60,14 @@ router.put(
   upload.single('image'),
   updateFutsalValidator,
   futsalController.updateFutsalImage,
+);
+
+// Update pricing rules (futsalOwner, admin)
+router.patch(
+  '/:id/pricing-rules',
+  authenticate,
+  authorize('admin', 'futsalOwner'),
+  futsalController.updatePricingRules,
 );
 
 module.exports = router;

@@ -6,18 +6,18 @@ const config = require('../config');
 
 // Setup nodemailer transporter
 const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST || config.smtpHost,
-  port: process.env.SMTP_PORT || config.smtpPort,
+  host: config.smtp.host,
+  port: config.smtp.port,
   auth: {
-    user: process.env.SMTP_USER || config.smtpUser,
-    pass: process.env.SMTP_PASS || config.smtpPass,
+    user: config.smtp.user,
+    pass: config.smtp.pass,
   },
 });
 
 // Send reminder email
 async function sendReminderEmail(user, futsal) {
   await transporter.sendMail({
-    from: process.env.SMTP_FROM || 'Futsal App <no-reply@futsal.com>',
+    from: config.smtp.from,
     to: user.email,
     subject: 'Futsal Registration Payment Reminder',
     html: `<p>Dear ${user.fullName},</p>
@@ -27,7 +27,7 @@ async function sendReminderEmail(user, futsal) {
   });
 }
 
-const ENV = process.env.NODE_ENV || 'development';
+const ENV = config.nodeEnv || 'development';
 
 async function futsalCleanupJob() {
   const now = new Date();

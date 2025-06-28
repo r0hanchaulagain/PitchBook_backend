@@ -3,7 +3,6 @@ const bcrypt = require('bcryptjs');
 
 const UserSchema = new mongoose.Schema({
   fullName: { type: String, required: true },
-  username: { type: String, required: true, unique: true },
   email: { type: String, required: true, unique: true },
   phone: { type: String, unique: true },
   password: { type: String, required: true },
@@ -21,7 +20,8 @@ const UserSchema = new mongoose.Schema({
     default: undefined,
   },
   // Only for futsal owners (optional)
-  isActiveOwner: { type: Boolean, required: false, default: undefined },
+  isActiveOwner: { type: Boolean, required: false, default: false },
+  khaltiPidx: { type: String, required: false },
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },
   isActive: { type: Boolean, default: true },

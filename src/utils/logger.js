@@ -1,8 +1,9 @@
 const { createLogger, format, transports } = require('winston');
 const path = require('path');
+const config = require('../config');
 
 const logger = createLogger({
-  level: process.env.NODE_ENV === 'production' ? 'info' : 'debug',
+  level: config.nodeEnv === 'production' ? 'info' : 'debug',
   format: format.combine(
     format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
     format.errors({ stack: true }),
@@ -15,7 +16,7 @@ const logger = createLogger({
   ],
 });
 
-if (process.env.NODE_ENV !== 'production') {
+if (config.nodeEnv !== 'production') {
   logger.add(
     new transports.Console({
       format: format.combine(format.colorize(), format.simple()),

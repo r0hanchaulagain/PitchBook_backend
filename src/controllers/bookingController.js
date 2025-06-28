@@ -2,18 +2,20 @@
 const Booking = require('../models/Booking');
 const Futsal = require('../models/Futsal');
 const User = require('../models/User');
-const sendMail = require('../utils/sendMail'); // Assuming sendMail utility is defined in this file
+// const sendMail = require('../utils/sendMail'); // Assuming sendMail utility is defined in this file
 const { createNotification } = require('./notificationController');
-const { getAsync, setAsync, delAsync } = require('../utils/redisClient');
+const { calculateDynamicPrice } = require('../utils/pricing');
+const { isHoliday } = require('../services/holidayService');
+const { initiateKhaltiPayment } = require('../utils/payment');
 
 // Allowed booking durations in minutes
-const ALLOWED_DURATIONS = [30, 60, 90, 120];
+const ALLOWED_DURATIONS = Array.from({ length: 7 }, (_, i) => 30 + i * 15); // [30, 45, 60, 75, 90, 105, 120]
 const MAX_BULK_DAYS = 30;
 
 // Utility for sending booking-related emails
-async function sendBookingEmail({ to, subject, html }) {
-  return sendMail({ to, subject, html });
-}
+// async function sendBookingEmail({ to, subject, html }) {
+//   return sendMail({ to, subject, html });
+// }
 
 function calculateDurationInMinutes(startTime, endTime) {
   // startTime and endTime are in "HH:MM" format
@@ -22,9 +24,18 @@ function calculateDurationInMinutes(startTime, endTime) {
   return eh * 60 + em - (sh * 60 + sm);
 }
 
-function isTimeWithinOperatingHours(startTime, endTime, operatingHours) {
-  if (!operatingHours || !operatingHours.open || !operatingHours.close) return false;
-  return startTime >= operatingHours.open && endTime <= operatingHours.close;
+function isSlotWithinOperatingHours(startTime, endTime, operatingHours, date, isHolidayFlag) {
+  const day = new Date(date).getDay();
+  let hours;
+  if (isHolidayFlag && operatingHours.holidays) {
+    hours = operatingHours.holidays;
+  } else if (day === 0 || day === 6) {
+    hours = operatingHours.weekends;
+  } else {
+    hours = operatingHours.weekdays;
+  }
+  if (!hours || !hours.open || !hours.close) return false;
+  return startTime >= hours.open && endTime <= hours.close;
 }
 
 function getDayOfWeek(date) {
@@ -34,42 +45,44 @@ function getDayOfWeek(date) {
 // POST /api/bookings - Create a new booking
 exports.createBooking = async (req, res) => {
   try {
-    const { futsalId, date, startTime, endTime, bookingType, teamA, teamB, specialRequests } =
-      req.body;
-    if (!futsalId || !date || !startTime || !endTime || !bookingType || !teamA) {
+    const { futsalId, date, startTime, endTime, bookingType, teamA, teamB } = req.body;
+    if (!futsalId || !date || !startTime || !endTime || !bookingType) {
       return res.status(400).json({ message: 'Missing required fields' });
+    }
+    // Team boolean validation
+    if (bookingType === 'full') {
+      if (teamA !== true || teamB !== true) {
+        return res.status(400).json({ message: 'Both teamA and teamB must be true for full booking' });
+      }
+    } else if (bookingType === 'partial') {
+      if (teamA !== true || teamB !== false) {
+        return res.status(400).json({ message: 'For partial booking, teamA must be true and teamB must be false' });
+      }
+    } else {
+      return res.status(400).json({ message: 'Invalid bookingType' });
     }
     // 1. Futsal existence and status
     const futsal = await Futsal.findById(futsalId).populate('owner');
     if (!futsal || !futsal.isActive) {
       return res.status(404).json({ message: 'Futsal not found or inactive' });
     }
-    // Calculate price dynamically
-    let price = futsal.pricing.basePrice;
-    if (futsal.pricing.rules && Array.isArray(futsal.pricing.rules)) {
-      const bookingDay = getDayOfWeek(date);
-      for (const rule of futsal.pricing.rules) {
-        // Match day (or 'any') and time overlap
-        if (
-          (rule.day === bookingDay || rule.day === 'any') &&
-          startTime >= rule.start &&
-          endTime <= rule.end
-        ) {
-          price = rule.price;
-        }
-      }
-    }
-    // 2. Duration validation
+    // Calculate duration
     const duration = calculateDurationInMinutes(startTime, endTime);
-    if (!ALLOWED_DURATIONS.includes(duration)) {
-      return res
-        .status(400)
-        .json({ message: 'Invalid booking duration. Allowed: 30, 60, 90, 120 min' });
+    // Validate duration: must be 30-120 min and a multiple of 15
+    if (duration < 30 || duration > 120 || duration % 15 !== 0) {
+      return res.status(400).json({ message: 'Invalid booking duration. Allowed: 30-120 min, in 15-min steps.' });
     }
-    // 3. Operating hours validation
-    const dayOfWeek = getDayOfWeek(date);
-    const operatingHours = futsal.operatingHours[dayOfWeek];
-    if (!isTimeWithinOperatingHours(startTime, endTime, operatingHours)) {
+    // Calculate dynamic price using shared utility (per hour)
+    const baseDynamicPrice = await calculateDynamicPrice(futsal, {
+      date,
+      time: startTime,
+      // Optionally: userCoords, commission, avgRating, reviewCount
+    });
+    // Adjust price for actual duration
+    const finalPrice = Math.round(baseDynamicPrice * (duration / 60));
+    // 3. Operating hours validation (new logic)
+    const isHolidayFlag = await isHoliday(date);
+    if (!isSlotWithinOperatingHours(startTime, endTime, futsal.operatingHours, date, isHolidayFlag)) {
       return res.status(400).json({ message: 'Booking time outside operating hours' });
     }
     // 4. Booking must be in the future
@@ -97,31 +110,26 @@ exports.createBooking = async (req, res) => {
     if (userConflict) {
       return res.status(409).json({ message: 'You already have a booking during this time' });
     }
-    // 7. Team validation (only team entity needed)
-    if (bookingType === 'full' && !teamB) {
-      return res.status(400).json({ message: 'Team B required for full booking' });
-    }
-    // 8. Create booking
+    // 9. Create booking
     const booking = new Booking({
       futsal: futsalId,
       user: req.user._id,
       date: new Date(date),
       startTime,
       endTime,
-      price,
+      price: finalPrice,
       status: 'pending',
       createdAt: new Date(),
       updatedAt: new Date(),
       bookingType,
       teamA,
-      teamB: teamB || (bookingType === 'partial' ? { isOpen: true } : undefined),
-      specialRequests,
+      teamB
     });
     await booking.save();
     // Notify futsal owner of booking attempt
     if (futsal.owner && futsal.owner.email) {
       const html = `<p>A new booking has been attempted for your futsal <b>${futsal.name}</b> on ${date} from ${startTime} to ${endTime}.</p>`;
-      await sendBookingEmail({ to: futsal.owner.email, subject: 'New Booking Attempt', html });
+      // await sendBookingEmail({ to: futsal.owner.email, subject: 'New Booking Attempt', html });
     }
     // --- Notification: Booking created ---
     await createNotification({
@@ -130,7 +138,7 @@ exports.createBooking = async (req, res) => {
       type: 'booking_created',
       meta: { booking: booking._id },
     });
-    return res.status(201).json({ message: 'Booking created', booking });
+    return res.status(201).json({ message: 'Booking created', booking, price: finalPrice });
   } catch (err) {
     return res.status(500).json({ message: 'Server error', error: err.message });
   }
@@ -148,11 +156,22 @@ exports.createBulkBooking = async (req, res) => {
       daysOfWeek,
       bookingType,
       teamA,
-      teamB,
-      specialRequests,
+      teamB
     } = req.body;
-    if (!futsalId || !startDate || !endDate || !startTime || !endTime || !daysOfWeek || !teamA) {
+    if (!futsalId || !startDate || !endDate || !startTime || !endTime || !daysOfWeek) {
       return res.status(400).json({ message: 'Missing required fields' });
+    }
+    // Team boolean validation
+    if (bookingType === 'full') {
+      if (teamA !== true || teamB !== true) {
+        return res.status(400).json({ message: 'Both teamA and teamB must be true for full booking' });
+      }
+    } else if (bookingType === 'partial') {
+      if (teamA !== true || teamB !== false) {
+        return res.status(400).json({ message: 'For partial booking, teamA must be true and teamB must be false' });
+      }
+    } else {
+      return res.status(400).json({ message: 'Invalid bookingType' });
     }
     // Validate date range
     const start = new Date(startDate);
@@ -190,9 +209,8 @@ exports.createBulkBooking = async (req, res) => {
         continue;
       }
       // Operating hours
-      const dayOfWeek = getDayOfWeek(date);
-      const operatingHours = futsal.operatingHours[dayOfWeek];
-      if (!isTimeWithinOperatingHours(startTime, endTime, operatingHours)) {
+      const isHolidayFlag = await isHoliday(date);
+      if (!isSlotWithinOperatingHours(startTime, endTime, futsal.operatingHours, date, isHolidayFlag)) {
         invalidBookings.push({ date, reason: 'Outside operating hours' });
         continue;
       }
@@ -222,11 +240,6 @@ exports.createBulkBooking = async (req, res) => {
       });
       if (userConflict) {
         invalidBookings.push({ date, reason: 'User already has a booking during this time' });
-        continue;
-      }
-      // Team validation
-      if (bookingType === 'full' && !teamB) {
-        invalidBookings.push({ date, reason: 'Team B required for full booking' });
         continue;
       }
       validBookings.push(date);
@@ -267,8 +280,7 @@ exports.createBulkBooking = async (req, res) => {
         updatedAt: new Date(),
         bookingType,
         teamA,
-        teamB: teamB || (bookingType === 'partial' ? { isOpen: true } : undefined),
-        specialRequests,
+        teamB,
         isBulkBooking: true,
       });
       await booking.save();
@@ -276,7 +288,7 @@ exports.createBulkBooking = async (req, res) => {
       // Notify futsal owner of booking attempt
       if (futsal.owner && futsal.owner.email) {
         const html = `<p>A new booking has been attempted for your futsal <b>${futsal.name}</b> on ${date.toDateString()} from ${startTime} to ${endTime}.</p>`;
-        await sendBookingEmail({ to: futsal.owner.email, subject: 'New Booking Attempt', html });
+        // await sendBookingEmail({ to: futsal.owner.email, subject: 'New Booking Attempt', html });
       }
       // --- Notification: Booking created ---
       await createNotification({
@@ -286,8 +298,6 @@ exports.createBulkBooking = async (req, res) => {
         meta: { booking: booking._id },
       });
     }
-    // Invalidate futsal cache after bulk booking
-    await delAsync(`futsal:${futsalId}`);
     return res.status(201).json({
       message: 'Bulk booking created',
       bookings: createdBookings,
@@ -324,12 +334,10 @@ exports.bulkBookingPayment = async (req, res) => {
       booking.paymentStatus = 'paid';
       booking.updatedAt = new Date();
       await booking.save();
-      // Invalidate futsal cache
-      await delAsync(`futsal:${booking.futsal}`);
       // Notify user
       await createNotification({
         user: booking.user,
-        message: `Your payment for booking at ${booking.futsal} on ${booking.date.toDateString()} is successful!`,
+        message: `Your payment for booking at ${booking.futsal.name} on ${booking.date.toDateString()} is successful!`,
         type: 'booking_payment',
         meta: { booking: booking._id },
       });
@@ -392,9 +400,9 @@ exports.updateBooking = async (req, res) => {
     if (req.user.role !== 'admin' && booking.user.toString() !== req.user._id.toString()) {
       return res.status(403).json({ message: 'Not authorized' });
     }
-    // Only allow updating specialRequests for simplicity
-    if (req.body.specialRequests !== undefined) {
-      booking.specialRequests = req.body.specialRequests;
+    // Only allow updating status for simplicity (specialRequests removed)
+    if (req.body.status !== undefined) {
+      booking.status = req.body.status;
     }
     booking.updatedAt = new Date();
     await booking.save();
@@ -521,8 +529,6 @@ exports.processBookingPayment = async (req, res) => {
       type: 'booking_payment',
       meta: { booking: booking._id },
     });
-    // Invalidate futsal cache
-    await delAsync(`futsal:${booking.futsal}`);
     res.status(200).json({ message: 'Payment successful', booking });
   } catch (err) {
     res.status(500).json({ message: 'Server error', error: err.message });
@@ -569,7 +575,7 @@ exports.checkFutsalAvailability = async (req, res) => {
 // POST /api/bookings/initiate - Initiate a new booking as Team A
 exports.initiateBookingAsTeamA = async (req, res) => {
   try {
-    const { futsalId, date, startTime, endTime, bookingType, specialRequests } = req.body;
+    const { futsalId, date, startTime, endTime, bookingType } = req.body;
     if (!futsalId || !date || !startTime || !endTime || !bookingType) {
       return res.status(400).json({ message: 'Missing required fields' });
     }
@@ -610,7 +616,7 @@ exports.initiateBookingAsTeamA = async (req, res) => {
     if (slotConflict) {
       return res.status(409).json({ message: 'Slot already booked' });
     }
-    // Create booking with current user as Team A
+    // Create booking with current user as Team A (boolean)
     const booking = new Booking({
       futsal: futsalId,
       user: req.user._id,
@@ -620,9 +626,8 @@ exports.initiateBookingAsTeamA = async (req, res) => {
       price,
       status: 'pending',
       bookingType,
-      teamA: { members: [req.user._id], confirmed: true },
-      teamB: bookingType === 'partial' ? { isOpen: true } : undefined,
-      specialRequests,
+      teamA: true,
+      teamB: false,
       createdAt: new Date(),
       updatedAt: new Date(),
     });
@@ -630,10 +635,105 @@ exports.initiateBookingAsTeamA = async (req, res) => {
     // Notify futsal owner
     if (futsal.owner && futsal.owner.email) {
       const html = `<p>A new booking has been initiated for your futsal <b>${futsal.name}</b> on ${date} from ${startTime} to ${endTime}.</p>`;
-      await sendBookingEmail({ to: futsal.owner.email, subject: 'New Booking Initiated', html });
+      // await sendBookingEmail({ to: futsal.owner.email, subject: 'New Booking Initiated', html });
     }
     res.status(201).json({ message: 'Booking initiated as Team A', booking });
   } catch (err) {
     res.status(500).json({ message: 'Server error', error: err.message });
+  }
+};
+
+// GET /api/bookings/available-slots?futsalId=...&date=YYYY-MM-DD
+exports.getAvailableSlots = async (req, res) => {
+  try {
+    const { futsalId, date } = req.query;
+    if (!futsalId || !date) {
+      return res.status(400).json({ message: 'futsalId and date are required' });
+    }
+    const futsal = await Futsal.findById(futsalId);
+    if (!futsal) {
+      return res.status(404).json({ message: 'Futsal not found' });
+    }
+    // Fetch all bookings for that day
+    const bookings = await Booking.find({
+      futsal: futsalId,
+      date: new Date(date),
+      status: { $nin: ['cancelled'] },
+    });
+    // Return only booked slots
+    const bookedSlots = bookings.map(b => ({ startTime: b.startTime, endTime: b.endTime }));
+    res.json({ bookedSlots });
+  } catch (err) {
+    res.status(500).json({ message: 'Server error', error: err.message });
+  }
+};
+
+// POST /api/bookings/:id/initiate-payment - Initiate Khalti payment for a booking
+exports.initiateKhaltiPayment = async (req, res) => {
+  try {
+    const bookingId = req.params.id;
+    const booking = await Booking.findById(bookingId).populate('futsal user');
+    if (!booking) return res.status(404).json({ error: 'Booking not found' });
+    if (booking.paymentStatus === 'paid') {
+      return res.status(400).json({ error: 'Booking already paid' });
+    }
+    // Prepare payment details
+    const { fullName, email, phone } = booking.user;
+    const amount = booking.price;
+    const return_url = req.body.return_url || req.query.return_url;
+    const paymentInit = await initiateKhaltiPayment({
+      name: fullName || booking.user.name || 'User',
+      email: email || '',
+      phone: phone || '',
+      amount,
+      purchase_order_id: booking._id.toString(),
+      purchase_order_name: `Booking for ${booking.futsal.name}`,
+      return_url
+    });
+    // Save pidx to booking
+    booking.paymentDetails = booking.paymentDetails || {};
+    booking.paymentDetails.khaltiPidx = paymentInit.pidx;
+    await booking.save();
+    res.status(201).json({
+      message: 'Khalti payment initiated. Complete payment using the provided URL.',
+      payment_url: paymentInit.payment_url,
+      pidx: paymentInit.pidx,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// GET /api/bookings/:id/verify-payment?pidx=... - Verify Khalti payment for a booking
+exports.verifyKhaltiPayment = async (req, res) => {
+  try {
+    const bookingId = req.params.id;
+    const { pidx } = req.query;
+    if (!pidx) {
+      return res.status(400).json({ error: 'Missing pidx' });
+    }
+    const booking = await Booking.findById(bookingId).populate('futsal user');
+    if (!booking) {
+      return res.status(404).json({ error: 'Booking not found' });
+    }
+    // Lookup payment status
+    const lookup = await require('../services/khaltiService').lookupPayment(pidx);
+    if (lookup.status === 'Completed') {
+      booking.paymentStatus = 'paid';
+      booking.status = 'confirmed';
+      booking.paymentDetails = {
+        ...booking.paymentDetails,
+        paymentMethod: 'khalti',
+        paymentDate: new Date(),
+        transactionId: pidx,
+      };
+      await booking.save();
+      // Optionally notify user and futsal owner here
+      return res.json({ message: 'Payment verified. Booking confirmed.', booking });
+    } else {
+      return res.status(400).json({ error: 'Payment not completed', status: lookup.status });
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 };

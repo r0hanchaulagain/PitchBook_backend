@@ -6,20 +6,58 @@ const config = require('./config');
 const logger = require('./utils/logger');
 const cookieParser = require('cookie-parser');
 const helmet = require('helmet');
-const mongoSanitize = require('express-mongo-sanitize');
-const xss = require('xss-clean');
 const rateLimit = require('express-rate-limit');
+const createMongoSanitizer = require('./utils/mongoSanitizer');
+const xssSanitizer = require('./utils/xssSanitizer');
 
 const app = express();
+
+const corsOptions = {
+  origin: function (origin, callback) {
+    const allowedOrigins = [config.frontendUrl,"moz-extension://5d9abfcd-ab40-4485-ac5e-bc52e6f100a2"];
+
+    console.log("Request origin:", origin);
+    
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin || allowedOrigins.some(allowed => origin.startsWith(allowed))) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  exposedHeaders: ['Content-Length', 'X-Request-Id'],
+  maxAge: 86400,
+};
 
 // Middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(cors());
+app.use(createMongoSanitizer({ logSanitized: true }));
+app.use(xssSanitizer);
+app.use(cors(corsOptions));
 app.use(cookieParser());
 app.use(helmet());
-app.use(mongoSanitize());
-app.use(xss());
+// Hybrid rate limiting: block bursts, allow frequent safe endpoints
+const generalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // limit each IP to 100 requests per windowMs
+  message: 'Too many requests from this IP, please try again later.',
+});
+const burstLimiter = rateLimit({
+  windowMs: 1000, // 1 second
+  max: 10, // max 10 requests per second
+  message: 'Too many requests in a short time, slow down.',
+});
+// Apply burst limiter to all routes
+app.use(burstLimiter);
+// Apply general limiter to all except /api/v1/users/me
+app.use((req, res, next) => {
+  if (req.path === '/api/v1/users/me') return next();
+  return generalLimiter(req, res, next);
+});
 app.use(
   rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
@@ -63,7 +101,14 @@ app.use(morgan(':method :url :status :response-time ms - :res[content-length] :r
 mongoose
   .connect(config.mongoUri)
   .then(() => logger.info('MongoDB connected'))
-  .catch((err) => logger.error('MongoDB connection error:', err));
+  .catch((err) => {
+    const handleMongoConnectionError = (err) => {
+      logger.error('MongoDB connection error:', err);
+      // Optionally, you can also log a more descriptive message or take further action
+      // For example: process.exit(1);
+    };
+    handleMongoConnectionError(err);
+  });
 
 const API_PREFIX = '/api/v1';
 
@@ -79,12 +124,17 @@ app.use(`${API_PREFIX}/payments`, require('./routes/paymentRoutes'));
 // Futsal routes
 app.use(`${API_PREFIX}/futsals`, require('./routes/futsalRoutes'));
 
-// TODO: Mount other routes here
+// Registration routes
+app.use(`${API_PREFIX}/registration`, require('./routes/registrationRoutes'));
+
+app.use(`${API_PREFIX}/booking`, require('./routes/bookingRoutes'))
 
 // Start futsal registration cleanup cron job
 require('./jobs/futsalRegistrationCleanup');
 // Start notification cleanup cron job
 require('./jobs/notificationCleanupJob');
+// Start booking cleanup cron job
+require('./jobs/bookingCleanupJob');
 
 // Error handler
 app.use((err, req, res, next) => {
@@ -94,3 +144,4 @@ app.use((err, req, res, next) => {
 });
 
 module.exports = app;
+// TODO: Fix all the email related issues

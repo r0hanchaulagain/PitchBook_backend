@@ -1,10 +1,10 @@
 const redis = require('redis');
 const { promisify } = require('util');
-require('dotenv').config({ path: process.env.REDIS_ENV_PATH || '.env.redis' });
+const config = require('../config');
 
 const redisClient = redis.createClient({
-  host: process.env.REDIS_HOST,
-  port: process.env.REDIS_PORT,
+  host: config.redis.host,
+  port: config.redis.port,
 });
 
 redisClient.on('error', (err) => {

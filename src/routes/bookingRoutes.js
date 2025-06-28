@@ -1,16 +1,22 @@
 const express = require('express');
 const router = express.Router();
 const bookingController = require('../controllers/bookingController');
-const auth = require('../middleware/auth'); // Assuming auth middleware is defined in this file
+const { authenticate, authorize } = require('../middlewares/auth');
+ // Assuming auth middleware is defined in this file
 
 // POST /api/bookings - Create a new booking
-router.post('/', bookingController.createBooking);
+router.post('/', authenticate, authorize('user'), bookingController.createBooking);
 
 // GET /api/bookings - Get all bookings (admin only)
-router.get('/', bookingController.getAllBookings);
+router.get('/',authenticate,
+    authorize('admin'), bookingController.getAllBookings);
 
 // GET /api/bookings/my - Get bookings for the logged-in user
-router.get('/me', auth, bookingController.getMyBookings);
+router.get('/me',authenticate,
+    authorize("user")   , bookingController.getMyBookings);
+
+// Get available slots for a futsal on a given date
+router.get('/available-slots', bookingController.getAvailableSlots);
 
 // GET /api/bookings/:id - Get booking by ID
 router.get('/:id', bookingController.getBookingById);
@@ -22,10 +28,10 @@ router.put('/:id', bookingController.updateBooking);
 router.delete('/:id', bookingController.cancelBooking);
 
 // Bulk booking creation
-router.post('/bulk', auth, bookingController.createBulkBooking);
+router.post('/bulk', bookingController.createBulkBooking);
 
 // Bulk payment for bookings
-router.post('/bulk-payment', auth, bookingController.bulkBookingPayment);
+router.post('/bulk-payment', bookingController.bulkBookingPayment);
 
 // GET /api/bookings/availability/:futsalId - Check availability for futsal
 router.get('/availability/:futsalId', bookingController.checkFutsalAvailability);
@@ -37,6 +43,12 @@ router.post('/:id/payment', bookingController.processBookingPayment);
 router.post('/:id/join', bookingController.joinBooking);
 
 // POST /api/bookings/initiate - Initiate a new booking as Team A
-router.post('/initiate', auth, bookingController.initiateBookingAsTeamA);
+router.post('/initiate', bookingController.initiateBookingAsTeamA); 
+
+// POST /api/bookings/:id/initiate-payment - Initiate Khalti payment for a booking
+router.post('/:id/initiate-payment', authenticate, authorize('user'), bookingController.initiateKhaltiPayment);
+
+// GET /api/bookings/:id/verify-payment - Verify Khalti payment for a booking
+router.get('/:id/verify-payment', bookingController.verifyKhaltiPayment);
 
 module.exports = router;

@@ -1,0 +1,79 @@
+# API Endpoint List
+
+## User Endpoints
+POST   /api/users/register           - Register a new user
+POST   /api/users/login              - Login user (sets HttpOnly access & refresh cookies)
+POST   /api/users/forgot-password    - Request password reset
+POST   /api/users/reset-password     - Reset password
+POST   /api/users/refresh-token      - Refresh JWT token (reads refresh cookie, sets new access cookie)
+POST   /api/users/logout             - Logout user (clears cookies)
+GET    /api/users/me                 - Get current user profile (protected by accessToken cookie)
+POST   /api/users/upload-profile-image   - Upload profile image (Cloudinary, auth, multipart/form-data)
+PUT    /api/users/update-profile-image   - Update profile image (Cloudinary, auth, multipart/form-data)
+DELETE /api/users/:id                - Permanently delete a user and their profile image
+
+## Futsal Endpoints
+GET    /api/futsals                  - List/search futsals (with filters, rating, location, pagination)
+GET    /api/futsals/:id              - Get futsal by ID (with dynamic pricing)
+POST   /api/futsals                  - Create futsal (owner/admin)
+PUT    /api/futsals/:id              - Update futsal (owner/admin)
+DELETE /api/futsals/:id              - Delete futsal (owner/admin)
+POST   /api/futsals/register         - Register futsal (owner)
+POST   /api/futsals/pay-registration - Pay registration fee
+POST   /api/futsals/upload-image         - Upload futsal image (Cloudinary, auth, multipart/form-data)
+PUT    /api/futsals/:id/update-image     - Update futsal image (Cloudinary, auth, multipart/form-data)
+GET    /api/futsals/nearby           - Get futsals near coordinates (lng, lat, radius)
+POST   /api/futsals/:id/close        - Close futsal for specific dates (holiday/closure management)
+
+## Booking Endpoints
+POST   /api/bookings                 - Create a booking
+POST   /api/bookings/initiate        - Initiate booking as Team A
+GET    /api/bookings                 - Get all bookings (admin)
+GET    /api/bookings/me              - Get bookings for the logged-in user
+GET    /api/bookings/:id             - Get booking by ID
+PUT    /api/bookings/:id             - Update booking (specialRequests only)
+DELETE /api/bookings/:id             - Cancel booking
+POST   /api/bookings/bulk            - Bulk booking creation
+POST   /api/bookings/bulk-payment    - Bulk payment for bookings
+GET    /api/bookings/availability/:futsalId - Check futsal availability (date, startTime, endTime)
+POST   /api/bookings/:id/payment     - Process booking payment
+POST   /api/bookings/:id/join        - Join as Team B (partial booking)
+
+## Notification Endpoints
+GET    /api/notifications            - Fetch notifications (polling, unread only)
+POST   /api/notifications/mark-read  - Mark notifications as read (triggers cleanup of read notifications)
+
+## Review Endpoints
+POST   /api/reviews                  - Create review for a futsal (must have booking)
+GET    /api/reviews/:futsalId        - Get all reviews for a futsal
+DELETE /api/reviews/:id              - Delete own review
+
+## Holiday Endpoints
+GET    /api/holidays                 - List all holidays
+POST   /api/futsals/:id/close        - Close futsal for specific dates (holiday/closure management)
+
+## System Jobs (Automated)
+- Notification Cleanup: Read notifications are deleted hourly. Unread notifications are auto-deleted if older than 7 days.
+- Booking Reminder: Users receive reminders for upcoming bookings.
+- Owner Deletion: Scheduled deletion of futsal owners and related data.
+
+## Payment Endpoints
+POST   /api/v1/payments/verify       - Verify futsal registration payment
+
+## Admin Analytics Endpoints
+GET    /api/admin/overview                   - Platform overview
+GET    /api/admin/registrations              - Registration stats
+GET    /api/admin/bookings                   - Booking stats
+GET    /api/admin/revenue                    - Revenue stats
+GET    /api/admin/top-futsals                - Top futsals
+GET    /api/admin/top-users                  - Top users
+GET    /api/admin/low-performing-futsals     - Low performing futsals
+GET    /api/admin/futsals-by-location        - Futsals by location
+GET    /api/admin/bookings-by-location       - Bookings by location
+GET    /api/admin/active-vs-inactive-futsals - Active/inactive futsals
+GET    /api/admin/cancellations              - Cancellation stats
+GET    /api/admin/holiday-impact             - Holiday impact
+
+---
+
+This list is generated from the route files. Check the API docs for request/response details and authentication requirements.

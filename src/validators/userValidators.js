@@ -1,7 +1,6 @@
 const { body } = require('express-validator');
 
 exports.registerValidator = [
-  body('username').notEmpty().isLength({ min: 3 }),
   body('email').isEmail(),
   body('password').isLength({ min: 6 }),
   body('role').isIn(['admin', 'user', 'futsalOwner']),

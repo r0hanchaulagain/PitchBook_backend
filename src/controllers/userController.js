@@ -24,14 +24,14 @@ exports.register = async (req, res) => {
     return res.status(400).json({ errors: errors.array() });
   }
   try {
-    const { username, email, password, role, phone, fullName } = req.body;
-    const userExists = await User.findOne({ $or: [{ email }, { username }, { phone }] });
+    const { email, password, role, phone, fullName } = req.body;
+    const userExists = await User.findOne({ $or: [{ email }, { phone }] });
     if (userExists) {
       res.locals.errorMessage = 'User already exists';
       return res.status(400).json({ error: 'User already exists' });
     }
     // Build user object based on role
-    let userObj = { username, email, password, role, phone, fullName };
+    let userObj = { email, password, role, phone, fullName };
     if (role === 'user') {
       userObj.favoritesFutsal = [];
       userObj.bookingHistory = [];
@@ -42,7 +42,7 @@ exports.register = async (req, res) => {
     const user = await User.create(userObj);
     const token = generateToken(user);
 
-    // Send futsal owner activation email if role is futsalOwner
+    // Send futsal owner activation email if role is futsalOwner #TODO: add to resend the email if owner is not active and tried to create a futsal
     if (role === 'futsalOwner') {
       const html = futsalOwnerActivationTemplate({ fullName });
       await sendMail({
@@ -55,7 +55,6 @@ exports.register = async (req, res) => {
     res.status(201).json({
       user: {
         id: user._id,
-        username: user.username,
         email: user.email,
         role: user.role,
         phone: user.phone,
@@ -80,8 +79,8 @@ exports.login = async (req, res) => {
     const { email, password } = req.body;
     const user = await User.findOne({ email });
     if (!user) {
-      res.locals.errorMessage = 'Invalid credentials';
-      return res.status(400).json({ error: 'Invalid credentials' });
+      res.locals.errorMessage = 'No user registered';
+      return res.status(400).json({ error: 'No user registered' });
     }
     // Check if account is locked
     if (user.lockUntil && user.lockUntil > Date.now()) {
@@ -97,8 +96,8 @@ exports.login = async (req, res) => {
         user.lockUntil = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
       }
       await user.save();
-      res.locals.errorMessage = 'Invalid credentials';
-      return res.status(400).json({ error: 'Invalid credentials' });
+      res.locals.errorMessage = 'Invalid credentials.Please try again.';
+      return res.status(400).json({ error: 'Invalid credentials.Please try again.' });
     }
     // Reset login attempts and lockUntil on successful login
     user.loginAttempts = 0;
@@ -110,20 +109,19 @@ exports.login = async (req, res) => {
     // Set cookies
     res.cookie('accessToken', token, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: config.nodeEnv === 'production',
       sameSite: 'strict',
       maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
     });
     res.cookie('refreshToken', refreshToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: config.nodeEnv === 'production',
       sameSite: 'strict',
       maxAge: 1000 * 60 * 60 * 24 * 30, // 30 days
     });
     res.json({
       user: {
         id: user._id,
-        username: user.username,
         email: user.email,
         role: user.role,
         phone: user.phone,
@@ -214,7 +212,7 @@ exports.refreshToken = async (req, res) => {
     const newToken = generateToken(user);
     res.cookie('accessToken', newToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: config.nodeEnv === 'production',
       sameSite: 'strict',
       maxAge: 1000 * 60 * 60 * 24 * 7,
     });
