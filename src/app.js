@@ -1,5 +1,5 @@
 const express = require("express");
-const https = require("node:http");
+const https = require("node:https");
 const fs = require("node:fs");
 
 const { setupSocket } = require("./config/socket_connection");
@@ -16,7 +16,7 @@ const options = {
 	cert: fs.readFileSync("src/config/ssl/server.crt"),
 };
 
-const server = https.createServer(app);
+const server = https.createServer(options, app);
 
 const { io, connectedUsers } = setupSocket(server);
 app.set("io", io);

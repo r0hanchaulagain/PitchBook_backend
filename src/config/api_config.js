@@ -1,50 +1,33 @@
 const express = require("express");
-const cors = require("cors");
-const helmet = require("helmet");
 const cookieParser = require("cookie-parser");
-const rateLimit = require("express-rate-limit");
 const morgan = require("morgan");
+
 const createMongoSanitizer = require("../utils/mongoSanitizer");
 const logger = require("../utils/logger");
 
-const rateLimiterConfig = () => {
-	const generalLimiter = rateLimit({
-		windowMs: 15 * 60 * 1000,
-		max: 100,
-		message: "Too many requests from this IP, please try again later.",
-	});
-
-	const burstLimiter = rateLimit({
-		windowMs: 1000,
-		max: 10,
-		message: "Too many requests in a short time, slow down.",
-	});
-
-	return {
-		generalLimiter,
-		burstLimiter,
-	};
-};
-
-const corsConfig = () => ({
-	origin: (origin, callback) => {
-		const allowedOrigins = [process.env.FRONTEND_URL];
-		if (!origin || allowedOrigins.includes(origin)) {
-			callback(null, true);
-		} else {
-			callback(new Error("Not allowed by CORS"));
-		}
-	},
-	credentials: true,
-	methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-	allowedHeaders: ["Content-Type", "Authorization"],
-	maxAge: 86400,
-});
+const { setupCSRF } = require("../middlewares/security/csrf");
+const { setupSecurityHeaders } = require("../middlewares/security/headers");
+const { rateLimiterConfig } = require("../middlewares/security/rate_limit");
 
 function setupMiddlewares(app) {
+	// Basic express middlewares
 	app.use(express.json());
 	app.use(express.urlencoded({ extended: true }));
-	app.use(cookieParser());
+	app.use(cookieParser(process.env.COOKIE_SECRET));
+
+	// Setup CSRF protection
+	const { csrfMiddleware, csrfProtection, csrfErrorHandler } = setupCSRF();
+	app.use(csrfMiddleware);
+	app.use(csrfProtection);
+	app.use(csrfErrorHandler);
+
+	// Setup security headers
+	const { helmetConfig, customHeaders, corsConfig } = setupSecurityHeaders();
+	app.use(helmetConfig);
+	app.use(customHeaders);
+	app.use(corsConfig);
+
+	// Setup request sanitization
 	app.use(
 		createMongoSanitizer({
 			logSanitized: true,
@@ -56,54 +39,7 @@ function setupMiddlewares(app) {
 		})
 	);
 
-	app.use(
-		helmet({
-			crossOriginEmbedderPolicy: true,
-			crossOriginOpenerPolicy: { policy: "same-origin" },
-			crossOriginResourcePolicy: { policy: "same-site" },
-			dnsPrefetchControl: { allow: false },
-			frameguard: { action: "deny" },
-			hidePoweredBy: true,
-			hsts: {
-				maxAge: 63072000, // 2 years in seconds
-				includeSubDomains: true,
-				preload: true,
-			},
-			ieNoOpen: true,
-			noSniff: true,
-			referrerPolicy: "strict-origin-when-cross-origin",
-			xssFilter: true,
-		})
-	);
-
-	app.use((req, res, next) => {
-		res.setHeader("X-Frame-Options", "DENY");
-		res.setHeader(
-			"Cache-Control",
-			"no-store, no-cache, must-revalidate, proxy-revalidate"
-		);
-		res.setHeader("Pragma", "no-cache");
-		res.setHeader("Expires", "0");
-		res.setHeader("Surrogate-Control", "no-store");
-
-		res.setHeader("X-Content-Type-Options", "nosniff");
-
-		res.setHeader("X-XSS-Protection", "1; mode=block");
-
-		res.setHeader("X-Permitted-Cross-Domain-Policies", "none");
-
-		res.setHeader("X-Download-Options", "noopen");
-
-		res.setHeader("X-DNS-Prefetch-Control", "off");
-		res.setHeader(
-			"X-Content-Security-Policy",
-			"default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob: https://*.khalti.com https://khalti.s3.amazonaws.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https://khalti.com https://a.khalti.com https://*.khalti.com; object-src 'none'; upgrade-insecure-requests; block-all-mixed-content"
-		);
-
-		next();
-	});
-	app.use(cors(corsConfig()));
-
+	// Setup rate limiting
 	const { generalLimiter, burstLimiter } = rateLimiterConfig();
 	app.use(burstLimiter);
 	app.use((req, res, next) => {
@@ -135,6 +71,11 @@ function setupRoutes(app) {
 	app.use("/api/v1/bookings", require("../routes/bookingRoutes"));
 	app.use("/api/v1/notifications", require("../routes/notificationRoutes"));
 	app.use("/api/v1/payments", require("../routes/paymentRoutes"));
+
+	const { generateCsrfToken } = setupCSRF();
+	app.get("/api/v1/csrf-token", (req, res) => {
+		res.json({ csrfToken: generateCsrfToken(req, res) });
+	});
 
 	app.use((req, res) => {
 		res.status(404).json({ error: "Not Found" });
