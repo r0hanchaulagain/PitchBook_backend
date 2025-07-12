@@ -1,5 +1,8 @@
-module.exports = function futsalPaymentSuccessTemplate({ ownerName, futsalName }) {
-  return `
+module.exports = function futsalPaymentSuccessTemplate({
+	ownerName,
+	futsalName,
+}) {
+	return `
     <div style="font-family: Arial, sans-serif;">
       <h2>Congratulations, ${ownerName}!</h2>
       <p>Your payment for the futsal <strong>${futsalName}</strong> has been received successfully.</p>

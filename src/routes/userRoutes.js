@@ -1,69 +1,65 @@
-const express = require('express');
+const express = require("express");
 const {
-  register,
-  login,
-  getProfile,
-  forgotPassword,
-  resetPassword,
-  refreshToken,
-  logout,
-  uploadProfileImage,
-  updateProfileImage,
-  deleteUser,
-} = require('../controllers/userController');
+	register,
+	login,
+	getProfile,
+	forgotPassword,
+	resetPassword,
+	refreshToken,
+	logout,
+	uploadProfileImage,
+	updateProfileImage,
+	deleteUser,
+	addFutsalToFavourites,
+	removeFutsalFromFavourites,
+	getFavouriteFutsals,
+} = require("../controllers/userController");
 const {
-  registerValidator,
-  loginValidator,
-  forgotPasswordValidator,
-  resetPasswordValidator,
-  deleteUserValidator,
-} = require('../validators/userValidators');
-const { authenticate } = require('../middlewares/auth');
-const multer = require('multer');
-const upload = multer({ dest: 'uploads/' });
-
+	registerValidator,
+	loginValidator,
+	forgotPasswordValidator,
+	resetPasswordValidator,
+	deleteUserValidator,
+} = require("../validators/userValidators");
+const { authenticate, authorize } = require("../middlewares/auth");
+const multer = require("multer");
+const upload = multer({ dest: "uploads/" });
 const router = express.Router();
 
-// Register
-router.post('/register-user', registerValidator, register);
-
-// Login
-router.post('/login', loginValidator, login);
-
-// Forgot password
-router.post('/forgot-password', forgotPasswordValidator, forgotPassword);
-
-// Reset password
-router.post('/reset-password', resetPasswordValidator, resetPassword);
-
-// Logout
-router.post('/logout', logout);
-
-// Refresh token endpoint
-router.post('/refresh-token', refreshToken);
-
-// Get current user profile (protected)
-router.get('/me', authenticate, getProfile);
-
-// Upload profile image
+router.post("/register", registerValidator, register);
+router.post("/login", loginValidator, login);
+router.post("/forgot-password", forgotPasswordValidator, forgotPassword);
+router.post("/reset-password", resetPasswordValidator, resetPassword);
+router.get("/logout", authenticate, logout);
+router.post("/refresh-token", authenticate, refreshToken);
+router.get("/me", authenticate, getProfile);
 router.post(
-  '/upload-profile-image',
-  authenticate,
-  upload.single('image'),
-  registerValidator,
-  uploadProfileImage,
+	"/upload-profile-image",
+	authenticate,
+	upload.single("image"),
+	registerValidator,
+	uploadProfileImage
 );
-
-// Update profile image
 router.put(
-  '/update-profile-image',
-  authenticate,
-  upload.single('image'),
-  registerValidator,
-  updateProfileImage,
+	"/update-profile-image",
+	authenticate,
+	upload.single("image"),
+	registerValidator,
+	updateProfileImage
 );
-
-// Permanently delete a user and their profile image
-router.delete('/:id', authenticate, deleteUserValidator, deleteUser);
+router.delete("/:id", authenticate, deleteUserValidator, deleteUser);
+router.post(
+	"/favorites/:futsalId",
+	authenticate,
+	authorize("user"),
+	addFutsalToFavourites
+);
+router.delete(
+	"/favorites/:futsalId",
+	authenticate,
+	authorize("user"),
+	removeFutsalFromFavourites
+);
+router.get("/favorites", authenticate, authorize("user"), getFavouriteFutsals);
 
 module.exports = router;

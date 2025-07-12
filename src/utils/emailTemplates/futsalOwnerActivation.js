@@ -1,6 +1,6 @@
 // Futsal Owner Activation Email Template
 module.exports = function futsalOwnerActivationTemplate({ fullName }) {
-  return `
+	return `
     <p>Dear ${fullName},</p>
     <p>Your futsal owner account has been created but is <b>not yet activated</b>.</p>
     <p>To activate your account and add your futsal, please register your futsal and pay the registration fee within 7 days.</p>

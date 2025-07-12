@@ -153,9 +153,36 @@ def main():
                     'price': int(base_price * 1.1)
                 })
 
-            # Operating hours
+            # Operating hours (new schema)
             opening_hour = random.choice(OPENING_HOURS_OPTIONS)
-            operating_hours = {day: {'open': f'{opening_hour:02d}:00', 'close': '21:00'} for day in ['monday','tuesday','wednesday','thursday','friday','saturday','sunday']}
+            operating_hours = {
+                "weekdays": {"open": f"{opening_hour:02d}:00", "close": "21:00"},
+                "weekends": {"open": f"{opening_hour:02d}:00", "close": "21:00"},
+                "holidays": {"open": f"{opening_hour:02d}:00", "close": "21:00"}
+            }
+
+            # Pricing modifiers (new schema)
+            pricing_modifiers = {
+                "timeOfDay": {
+                    "enabled": True,
+                    "morning": 0.05,
+                    "midday": 0,
+                    "evening": 0.1
+                },
+                "holiday": {
+                    "enabled": True,
+                    "percentage": 0.13
+                },
+                "weekend": {
+                    "enabled": True,
+                    "percentage": 0.07
+                },
+                "location": {
+                    "enabled": False,
+                    "near": 0.1,
+                    "far": -0.05
+                }
+            }
 
             # Info
             info = random.choice(INTRO_PARAGRAPHS)
@@ -225,7 +252,8 @@ def main():
                 'amenities': amenities,
                 'pricing': {
                     'basePrice': base_price,
-                    'rules': pricing_rules
+                    'rules': pricing_rules,
+                    'modifiers': pricing_modifiers
                 },
                 'location': location,
                 'contactInfo': contact_info,
