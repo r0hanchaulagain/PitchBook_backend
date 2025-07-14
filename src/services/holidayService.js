@@ -9,67 +9,75 @@ const {
 	writeHolidayFile,
 } = require("./holidayFileUtil");
 
-const SARALPATRO_API_URL = "https://api.saralpatro.com/graphql";
-
-// In-memory cache: { [bsYear]: { holidays: Set<YYYY-MM-DD>, fetchedAt: Date } }
 const holidayCache = {};
 
-// Helper: Convert AD date to YYYY-MM-DD string
 function formatDate(adYear, adMonth, adDay) {
 	return `${adYear}-${String(adMonth).padStart(2, "0")}-${String(adDay).padStart(2, "0")}`;
 }
 
-// Fetch holidays for a given BS year from SaralPatro, or load from file if exists
 async function fetchHolidaysForBSYear(bsYear) {
-	// Try file first
-	if (holidayFileExists(bsYear)) {
-		const holidaysArr = readHolidayFile(bsYear);
-		// Support both array and Set
-		return new Set(holidaysArr);
-	}
+    try {
+        if (holidayFileExists(bsYear)) {
+            try {
+                const holidaysArr = readHolidayFile(bsYear);
+                if (holidaysArr && Array.isArray(holidaysArr) && holidaysArr.length > 0) {
+                    return new Set(holidaysArr);
+                }
+            } catch (fileError) {
+                console.error(`Error reading holiday file for BS ${bsYear}:`, fileError);
+            }
+        }
 
-	// Check cache (refresh every 24 hours)
-	if (
-		holidayCache[bsYear] &&
-		Date.now() - holidayCache[bsYear].fetchedAt < 24 * 60 * 60 * 1000
-	) {
-		return holidayCache[bsYear].holidays;
-	}
+        if (holidayCache[bsYear] && Date.now() - holidayCache[bsYear].fetchedAt < 24 * 60 * 60 * 1000) {
+            return holidayCache[bsYear].holidays;
+        }
 
-	// Fetch from API
-	const query = `query { dates(bsYear: ${bsYear}) { adYear adMonth adDay isHoliday } }`;
-	const response = await axios.post(
-		SARALPATRO_API_URL,
-		{ query },
-		{ headers: { "Content-Type": "application/json" } }
-	);
+        console.log(`Fetching holidays for BS ${bsYear} from GitHub...`);
+        const response = await axios.get(
+            `https://raw.githubusercontent.com/Saral-Patro/data/main/${bsYear}.json`,
+            { 
+                timeout: 5000, // 5 second timeout
+                headers: { 'Accept': 'application/json' }
+            }
+        );
 
-	const holidays = [];
-	if (
-		response.data &&
-		response.data.data &&
-		Array.isArray(response.data.data.dates)
-	) {
-		response.data.data.dates.forEach((d) => {
-			if (d.isHoliday) {
-				holidays.push(formatDate(d.adYear, d.adMonth, d.adDay));
-			}
-		});
-	}
-	// Save to file for future use
-	writeHolidayFile(bsYear, holidays);
-	holidayCache[bsYear] = { holidays: new Set(holidays), fetchedAt: Date.now() };
-	return new Set(holidays);
+        const holidays = [];
+        if (response.data && Array.isArray(response.data)) {
+            response.data.forEach(holiday => {
+                if (holiday.isHoliday && holiday.adYear && holiday.adMonth && holiday.adDay) {
+                    holidays.push(formatDate(holiday.adYear, holiday.adMonth, holiday.adDay));
+                }
+            });
+        }
+
+        if (holidays.length > 0) {
+            try {
+                writeHolidayFile(bsYear, holidays);
+            } catch (writeError) {
+                console.error(`Error writing holiday file for BS ${bsYear}:`, writeError);
+            }
+        }
+
+        const holidaysSet = new Set(holidays);
+        holidayCache[bsYear] = { 
+            holidays: holidaysSet, 
+            fetchedAt: Date.now() 
+        };
+        
+        return holidaysSet;
+    } catch (error) {
+        console.error(`Error fetching holidays for BS ${bsYear} from GitHub:`, error);
+        // Return an empty set if there's an error
+        return new Set();
+    }
 }
 
-// Check if an AD date (YYYY-MM-DD or Date object) is a holiday
 async function isHoliday(adDate) {
 	const date = dayjs(adDate);
 	const adYear = date.year();
-	const adMonth = date.month() + 1; // dayjs month is 0-indexed
+	const adMonth = date.month() + 1;
 	const adDay = date.date();
 
-	// Find corresponding BS year (roughly, BS = AD + 57)
 	const bsYear = adYear + 57;
 	const holidays = await fetchHolidaysForBSYear(bsYear);
 	return holidays.has(formatDate(adYear, adMonth, adDay));

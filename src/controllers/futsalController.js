@@ -1,6 +1,4 @@
 const Futsal = require("../models/Futsal");
-const { validationResult } = require("express-validator");
-const { verifyKhaltiPayment } = require("../services/khaltiService");
 const { sendMail } = require("../utils/email");
 const User = require("../models/User");
 const { isHoliday } = require("../services/holidayService");
@@ -8,7 +6,6 @@ const Review = require("../models/Review");
 const { uploadImage, deleteImage } = require("../utils/cloudinary");
 const config = require("../config/env_config");
 
-// Helper: Calculate average rating for a futsal
 async function getAverageRating(futsalId) {
 	const result = await Review.aggregate([
 		{
@@ -26,7 +23,6 @@ async function getAverageRating(futsalId) {
 		: { avg: null, count: 0 };
 }
 
-// Helper to validate new operatingHours structure
 function validateOperatingHours(operatingHours) {
 	if (!operatingHours) return false;
 	const keys = ["weekdays", "weekends", "holidays"];
@@ -48,7 +44,6 @@ exports.getFutsals = async (req, res) => {
 	}, TIMEOUT_MS);
 
 	try {
-		const startTime = Date.now();
 		const {
 			search,
 			city,
@@ -167,13 +162,38 @@ exports.getFutsals = async (req, res) => {
 			});
 		}
 
+		const { date, time, commission } = req.query;
+		const userCoords = lng && lat ? [parseFloat(lng), parseFloat(lat)] : null;
+		const commissionNum = commission ? parseFloat(commission) : 0;
+
 		const futsalsWithRatings = await Promise.all(
 			futsals.map(async (futsal) => {
-				const rating = await getAverageRating(futsal._id);
+				const { avg: avgRating, count: reviewCount } = await getAverageRating(futsal._id);
+				const { calculateDynamicPrice } = require("../utils/pricing");
+				
+				// Calculate dynamic price
+				let finalPrice = futsal.pricing?.basePrice || 0;
+				try {
+					finalPrice = await calculateDynamicPrice(futsal, {
+						date,
+						time,
+						userCoords,
+						commission: commissionNum,
+						avgRating,
+						reviewCount,
+					});
+				} catch (priceError) {
+					console.error('Price calculation failed for futsal:', futsal._id, priceError);
+				}
+
 				return {
 					...(futsal.toObject ? futsal.toObject() : futsal),
-					rating: rating.avg,
-					reviewCount: rating.count,
+					rating: avgRating,
+					reviewCount,
+					pricing: {
+						...futsal.pricing,
+						finalPrice
+					}
 				};
 			})
 		);
@@ -340,10 +360,14 @@ exports.getFutsalById = async (req, res) => {
 			dateToCheck = now.toISOString().slice(0, 10);
 		}
 		try {
-			isHolidayValue = await isHoliday(dateToCheck);
-		} catch (e) {
-			isHolidayValue = false;
-		}
+            isHolidayValue = await Promise.race([
+                isHoliday(dateToCheck),
+                new Promise((resolve) => setTimeout(() => resolve(false), 1000))
+            ]);
+        } catch (e) {
+            console.error('Error checking holiday status:', e);
+            isHolidayValue = false;
+        }
 		const futsalObj = {
 			...futsal.toObject(),
 			pricing: {

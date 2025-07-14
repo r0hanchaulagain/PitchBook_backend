@@ -31,6 +31,7 @@ const BookingSchema = new mongoose.Schema({
 	paymentDetails: {
 		paymentMethod: { type: String, enum: ["khalti", "cash"] },
 		paymentDate: { type: Date },
+		pidx: { type: String, optional: true },
 		// Additional payment details can be added here
 	},
 	transaction: {

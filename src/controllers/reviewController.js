@@ -1,6 +1,5 @@
 const Review = require("../models/Review");
 const Booking = require("../models/Booking");
-const Futsal = require("../models/Futsal");
 
 // POST /api/reviews - Create review for a futsal (user must have a booking)
 exports.createReview = async (req, res) => {

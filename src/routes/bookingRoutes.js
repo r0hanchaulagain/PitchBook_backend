@@ -55,11 +55,14 @@ router.put("/:id", bookingController.updateBooking);
 // DELETE /api/bookings/:id - Cancel booking
 router.delete("/:id", bookingController.cancelBooking);
 
-// Bulk booking creation
-router.post("/bulk", bookingController.createBulkBooking);
 
-// Bulk payment for bookings
-router.post("/bulk-payment", bookingController.bulkBookingPayment);
+// Create bulk booking with Khalti payment
+router.post(
+    "/bulk-with-payment",
+    authenticate,
+    authorize("user"),
+    bookingController.createBulkBookingWithPayment
+);
 
 // GET /api/bookings/availability/:futsalId - Check availability for futsal
 router.get(
@@ -67,8 +70,6 @@ router.get(
 	bookingController.checkFutsalAvailability
 );
 
-// POST /api/bookings/:id/payment - Process booking payment
-// router.post('/:id/payment', bookingController.processBookingPayment);
 
 // POST /api/bookings/:id/join - Join an existing booking as team B
 router.post("/:id/join", bookingController.joinBooking);
@@ -84,7 +85,11 @@ router.post(
 	bookingController.initiateKhaltiPayment
 );
 
+// Bulk booking payment verification
+router.get('/bulk/verify-payment', bookingController.verifyBulkKhaltiPayment);
+
 // GET /api/bookings/:id/verify-payment - Verify Khalti payment for a booking
 router.get("/:id/verify-payment", bookingController.verifyKhaltiPayment);
+
 
 module.exports = router;

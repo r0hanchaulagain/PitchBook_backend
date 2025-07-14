@@ -3,7 +3,8 @@ const Notification = require("../models/Notification");
 class NotificationService {
 	constructor(io, connectedUsers) {
 		this.io = io;
-		this.connectedUsers = connectedUsers;
+		// Defensive: ensure connectedUsers is always a Map
+		this.connectedUsers = connectedUsers && typeof connectedUsers.get === 'function' ? connectedUsers : new Map();
 	}
 
 	// Send notification to a specific user
@@ -16,9 +17,11 @@ class NotificationService {
 			});
 
 			// If user is online, send via WebSocket
-			const socketId = this.connectedUsers.get(userId.toString());
-			if (socketId && this.io.sockets.sockets.has(socketId)) {
-				this.io.to(socketId).emit("notification", newNotification);
+			if (this.connectedUsers && typeof this.connectedUsers.get === 'function') {
+				const socketId = this.connectedUsers.get(userId.toString());
+				if (socketId && this.io && this.io.sockets && this.io.sockets.sockets.has(socketId)) {
+					this.io.to(socketId).emit("notification", newNotification);
+				}
 			}
 
 			return newNotification;

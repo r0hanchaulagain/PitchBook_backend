@@ -5,7 +5,7 @@ const envPath = path.resolve(process.cwd(), ".env");
 dotenv.config({ path: envPath });
 
 module.exports = {
-	port: process.env.PORT || 5000,
+	port: process.env.PORT,
 	mongoUri: process.env.MONGODB_URI,
 	jwtSecret: process.env.JWT_SECRET,
 	nodeEnv: process.env.NODE_ENV || "development",

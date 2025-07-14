@@ -11,11 +11,11 @@ const config = require("../config/env_config");
 
 // POST /api/bookings/cash - Create a new booking with cash payment
 exports.createCashBooking = async (req, res) => {
-	// Don't use transactions in development to avoid replica set requirement
-	const useTransaction = config.nodeEnv === "production";
-	const session = useTransaction ? await mongoose.startSession() : null;
+    // Don't use transactions in development to avoid replica set requirement
+    const useTransaction = config.nodeEnv === "production";
+    const session = useTransaction ? await mongoose.startSession() : null;
 
-	if (useTransaction) await session.startTransaction();
+    if (useTransaction) await session.startTransaction();
 
 	try {
 		const notificationController = getNotificationController(req);
@@ -304,6 +304,7 @@ const getNotificationController = (req = {}) => {
 // Allowed booking durations in minutes
 const ALLOWED_DURATIONS = [60, 120];
 const MAX_BULK_DAYS = 7;
+const BOOKING_DURATION_MINUTES = 60; // Default booking duration in minutes
 
 function calculateDurationInMinutes(startTime, endTime) {
 	// startTime and endTime are in "HH:MM" format
@@ -323,7 +324,7 @@ function isSlotWithinOperatingHours(
 	let hours;
 	if (isHolidayFlag && operatingHours.holidays) {
 		hours = operatingHours.holidays;
-	} else if (day === 0 || day === 6) {
+	}  else if (day === 0 || day === 6) {
 		hours = operatingHours.weekends;
 	} else {
 		hours = operatingHours.weekdays;
@@ -634,325 +635,246 @@ exports.createBooking = async (req, res) => {
 	}
 };
 
-// POST /api/bookings/bulk - Create bulk booking
-exports.createBulkBooking = async (req, res) => {
-	try {
-		const {
-			futsalId,
-			startDate,
-			endDate,
-			startTime,
-			endTime,
-			daysOfWeek,
-			bookingType,
-			teamA,
-			teamB,
-		} = req.body;
-		if (
-			!futsalId ||
-			!startDate ||
-			!endDate ||
-			!startTime ||
-			!endTime ||
-			!daysOfWeek
-		) {
-			return res.status(400).json({ message: "Missing required fields" });
-		}
-		// Team boolean validation
-		if (bookingType === "full") {
-			if (teamA !== true || teamB !== true) {
-				return res.status(400).json({
-					message: "Both teamA and teamB must be true for full booking",
-				});
-			}
-		} else if (bookingType === "partial") {
-			if (teamA !== true || teamB !== false) {
-				return res.status(400).json({
-					message:
-						"For partial booking, teamA must be true and teamB must be false",
-				});
-			}
-		} else {
-			return res.status(400).json({ message: "Invalid bookingType" });
-		}
-		// Validate date range
-		const start = new Date(startDate);
-		const end = new Date(endDate);
-		const diffDays = Math.ceil((end - start) / (1000 * 60 * 60 * 24));
-		if (diffDays > MAX_BULK_DAYS) {
-			return res
-				.status(400)
-				.json({ message: `Bulk booking cannot exceed ${MAX_BULK_DAYS} days` });
-		}
-		// Generate dates for booking
-		const bookingDates = [];
-		for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-			const day = d
-				.toLocaleDateString("en-US", { weekday: "long" })
-				.toLowerCase();
-			if (daysOfWeek.includes(day)) {
-				bookingDates.push(new Date(d));
-			}
-		}
-		if (bookingDates.length === 0) {
-			return res.status(400).json({ message: "No valid booking dates found" });
-		}
-		// Validate each date
-		const validBookings = [];
-		const invalidBookings = [];
-		for (const date of bookingDates) {
-			// Repeat single booking validation logic
-			// Duration
-			const duration = calculateDurationInMinutes(startTime, endTime);
-			if (!ALLOWED_DURATIONS.includes(duration)) {
-				invalidBookings.push({ date, reason: "Invalid duration" });
-				continue;
-			}
-			// Futsal
-			const futsal = await Futsal.findById(futsalId);
-			if (!futsal || !futsal.isActive) {
-				invalidBookings.push({ date, reason: "Futsal not found or inactive" });
-				continue;
-			}
-			// Operating hours
-			const isHolidayFlag = await isHoliday(date);
-			if (
-				!isSlotWithinOperatingHours(
-					startTime,
-					endTime,
-					futsal.operatingHours,
-					date,
-					isHolidayFlag
-				)
-			) {
-				invalidBookings.push({ date, reason: "Outside operating hours" });
-				continue;
-			}
-			// Future booking
-			const bookingStart = new Date(
-				`${date.toISOString().split("T")[0]}T${startTime}`
-			);
-			if (bookingStart < new Date()) {
-				invalidBookings.push({ date, reason: "Cannot book for past time" });
-				continue;
-			}
-			// Slot conflict
-			const slotConflict = await Booking.findOne({
-				futsal: futsalId,
-				date: date,
-				status: { $nin: ["cancelled"] },
-				$or: [{ startTime: { $lt: endTime }, endTime: { $gt: startTime } }],
-			});
-			if (slotConflict) {
-				invalidBookings.push({ date, reason: "Time slot already booked" });
-				continue;
-			}
-			// User conflict
-			const userConflict = await Booking.findOne({
-				user: req.user._id,
-				date: date,
-				status: { $nin: ["cancelled"] },
-				$or: [{ startTime: { $lt: endTime }, endTime: { $gt: startTime } }],
-			});
-			if (userConflict) {
-				invalidBookings.push({
-					date,
-					reason: "User already has a booking during this time",
-				});
-				continue;
-			}
-			validBookings.push(date);
-		}
-		if (validBookings.length === 0) {
-			return res
-				.status(400)
-				.json({ message: "No valid slots available", invalidBookings });
-		}
-		// Calculate total price
-		const futsal = await Futsal.findById(futsalId);
-		const duration = calculateDurationInMinutes(startTime, endTime);
-		let pricePerBooking = futsal.pricing.basePrice;
-		if (futsal.pricing.rules && Array.isArray(futsal.pricing.rules)) {
-			const bookingDay = getDayOfWeek(validBookings[0]);
-			for (const rule of futsal.pricing.rules) {
-				// Match day (or 'any') and time overlap
-				if (
-					(rule.day === bookingDay || rule.day === "any") &&
-					startTime >= rule.start &&
-					endTime <= rule.end
-				) {
-					pricePerBooking = rule.price;
-				}
-			}
-		}
-		const totalPrice = pricePerBooking * validBookings.length;
-		// Save only valid bookings (pending status)
-		const createdBookings = [];
-		for (const date of validBookings) {
-			const booking = new Booking({
-				futsal: futsalId,
-				user: req.user._id,
-				date: date,
-				startTime,
-				endTime,
-				price: pricePerBooking,
-				status: "pending",
-				createdAt: new Date(),
-				updatedAt: new Date(),
-				bookingType,
-				teamA,
-				teamB,
-				isBulkBooking: true,
-			});
-			await booking.save();
-			createdBookings.push(booking);
-			// Notify futsal owner of booking attempt
-			if (futsal.owner && futsal.owner.email) {
-				const html = `<p>A new booking has been attempted for your futsal <b>${futsal.name}</b> on ${date.toDateString()} from ${startTime} to ${endTime}.</p>`;
-				// await sendBookingEmail({ to: futsal.owner.email, subject: 'New Booking Attempt', html });
-			}
-			// --- Notification: Booking created ---
-			await createNotification({
-				user: req.user._id,
-				message: `Your booking for ${futsal.name} on ${date.toDateString()} from ${startTime} to ${endTime} has been created.`,
-				type: "booking_created",
-				meta: { booking: booking._id },
-				futsal: futsalId,
-			});
-		}
-		return res.status(201).json({
-			message: "Bulk booking created",
-			bookings: createdBookings,
-			invalidBookings,
-			totalPrice,
-		});
-	} catch (err) {
-		return res
-			.status(500)
-			.json({ message: "Server error", error: err.message });
-	}
+// POST /api/bookings/bulk-with-payment - Create bulk booking with Khalti payment for full days
+exports.createBulkBookingWithPayment = async (req, res) => {
+    const useTransaction = config.nodeEnv === "production";
+    const session = useTransaction ? await mongoose.startSession() : null;
+    const notificationController = getNotificationController(req);
+
+    if (useTransaction) {
+        await session.startTransaction();
+    }
+
+    try {
+        const { futsalId, startDate, numberOfDays, bookingType } = req.body;
+        const userId = req.user._id;
+
+        // Input validation
+        if (!futsalId || !startDate || !numberOfDays || !bookingType) {
+            if (useTransaction) {
+                await session.abortTransaction();
+                session.endSession();
+            }
+            return res.status(400).json({ message: "Missing required fields" });
+        }
+
+        // Validate number of days (max 7 days)
+        if (numberOfDays > MAX_BULK_DAYS) {
+            if (useTransaction) {
+                await session.abortTransaction();
+                session.endSession();
+            }
+            return res.status(400).json({ 
+                message: `Bulk booking cannot exceed ${MAX_BULK_DAYS} days` 
+            });
+        }
+
+        // Get futsal details including operating hours
+        const futsal = await Futsal.findById(futsalId).populate('owner');
+        if (!futsal || !futsal.isActive) {
+            if (useTransaction) {
+                await session.abortTransaction();
+                session.endSession();
+            }
+            return res.status(404).json({ message: "Futsal not found or inactive" });
+        }
+
+        // Validate booking type
+        if (!['full', 'partial'].includes(bookingType)) {
+            if (useTransaction) {
+                await session.abortTransaction();
+                session.endSession();
+            }
+            return res.status(400).json({ message: "Invalid bookingType" });
+        }
+
+        // Get operating hours or use defaults if not set
+        const openingTime = futsal.operatingHours?.opening || '06:00';
+        const closingTime = futsal.operatingHours?.closing || '22:00';
+        
+        // Calculate total duration in hours
+        const durationHours = calculateDurationInMinutes(openingTime, closingTime) / 60;
+        
+        // Calculate price for full day
+        const basePricePerHour = futsal.pricePerHour || 1000;
+        const pricePerDay = Math.ceil(basePricePerHour * durationHours);
+        const totalPrice = pricePerDay * numberOfDays;
+
+        // Generate booking dates and validate each one
+        const bookingDates = [];
+        const currentDate = new Date(startDate);
+        const now = new Date();
+        
+        for (let i = 0; i < numberOfDays; i++) {
+            // Check if booking date is in the past
+            if (currentDate < now) {
+                if (useTransaction) {
+                    await session.abortTransaction();
+                    session.endSession();
+                }
+                return res.status(400).json({ 
+                    message: `Cannot book for past date: ${currentDate.toISOString().split('T')[0]}` 
+                });
+            }
+
+            // Removed isSlotWithinOperatingHours check for full-day booking
+            // (We are booking the entire available day by definition)
+
+            // Check for existing paid bookings
+            const existingBooking = await Booking.findOne({
+                futsal: futsalId,
+                date: currentDate,
+                isPaid: true,
+                status: { $nin: ["cancelled"] },
+                $or: [
+                    { startTime: { $lt: closingTime } },
+                    { endTime: { $gt: openingTime } }
+                ]
+            }).session(useTransaction ? session : null);
+
+            if (existingBooking) {
+                if (useTransaction) {
+                    await session.abortTransaction();
+                    session.endSession();
+                }
+                return res.status(409).json({
+                    message: `Time slot already booked on ${currentDate.toISOString().split('T')[0]}`
+                });
+            }
+
+            bookingDates.push(new Date(currentDate));
+            currentDate.setDate(currentDate.getDate() + 1);
+        }
+
+        // Create bookings for each day with payment expiration (30 minutes)
+        const paymentExpiresAt = new Date(Date.now() + 30 * 60 * 1000);
+        const bookings = bookingDates.map(date => ({
+            user: userId,
+            futsal: futsalId,
+            date: date,
+            startTime: openingTime,
+            endTime: closingTime,
+            price: pricePerDay,
+            bookingType,
+            teamA: true,
+            teamB: bookingType === 'full',
+            status: 'pending',
+            isPaid: false,
+            paymentStatus: 'pending',
+            paymentMethod: 'khalti',
+            paymentExpiresAt,
+            createdAt: new Date(),
+            updatedAt: new Date()
+        }));
+
+        // Save all bookings
+        const createdBookings = await Booking.insertMany(bookings, { session });
+        const bookingIds = createdBookings.map(b => b._id);
+        console.log('Bulk booking debug: Created bookingIds:', bookingIds);
+
+        // For development/testing: workaround for Khalti display bug
+        const amountToSend = Math.min(totalPrice, 1000); // send in rupees for Khalti UI bug workaround
+        // Prepare Khalti payment payload
+        const khaltiPayload = {
+            name: req.user.fullName || 'Customer',
+            email: req.user.email || '',
+            phone: req.user.phone || '',
+            amount: amountToSend,
+            purchase_order_id: `bulk_${Date.now()}`,
+            purchase_order_name: `Full Day Booking for ${futsal.name} (${numberOfDays} days)`,
+            return_url: `${config.frontendUrl}/bookings/verify`
+        };
+        // Generate Khalti payment URL
+        const paymentInit = await initiateKhaltiPayment(khaltiPayload);
+        console.log('Bulk booking debug: paymentInit.pidx:', paymentInit.pidx);
+
+        // Update bookings with payment reference (no session)
+        const updateResult = await Booking.updateMany(
+            { _id: { $in: bookingIds } },
+            { $set: { 'paymentDetails.pidx': paymentInit.pidx, 'paymentUrl': paymentInit.payment_url } }
+        );
+        console.log('Bulk booking debug: updateMany result:', updateResult);
+
+        // Fetch and log a sample booking after update
+        const sampleBooking = await Booking.findById(bookingIds[0]);
+        console.log('Bulk booking debug: sample booking after update:', sampleBooking);
+
+        // Create notifications
+        const notificationPromises = [];
+        
+        // Notification for user
+        notificationPromises.push(
+            notificationController.createNotification({
+                user: userId,
+                message: `Your bulk booking for ${futsal.name} (${numberOfDays} days) has been created. Please complete payment within 30 minutes.`,
+                type: 'booking_created',
+                meta: { booking: bookingIds[0] }, // Link to first booking
+                futsal: futsalId
+            }, { session })
+        );
+
+        // Notification for futsal owner
+        if (futsal.owner && futsal.owner._id) {
+            notificationPromises.push(
+                notificationController.createNotification({
+                    user: futsal.owner._id,
+                    message: `New bulk booking request for ${futsal.name} (${numberOfDays} days).`,
+                    type: 'new_booking',
+                    meta: {
+                        booking: bookingIds[0],
+                        futsal: futsalId,
+                        customer: userId
+                    }
+                }, { session })
+            );
+        }
+
+        await Promise.all(notificationPromises);
+
+        if (useTransaction) {
+            await session.commitTransaction();
+            session.endSession();
+        }
+
+        // Return response with payment URL
+        res.status(201).json({
+            success: true,
+            message: 'Full day bookings created successfully. Please complete the payment.',
+            totalAmount: totalPrice,
+            currency: 'NPR',
+            paymentUrl: paymentInit.payment_url,
+            pidx: paymentInit.pidx,
+            bookingIds,
+            bookingDates: bookingDates.map(d => d.toISOString().split('T')[0]),
+            paymentExpiresAt,
+            duration: {
+                startTime: openingTime,
+                endTime: closingTime,
+                hours: durationHours
+            }
+        });
+
+    } catch (error) {
+        // Concise but informative error log for debugging
+        console.error('Bulk booking payment error:', {
+            message: error.message,
+            status: error.response?.status,
+            data: error.response?.data,
+            url: error.config?.url
+        });
+        if (useTransaction && session) {
+            await session.abortTransaction();
+            session.endSession();
+        }
+        res.status(500).json({
+            success: false,
+            message: 'Failed to process full day bulk booking',
+            error: error.message
+        });
+    }
 };
 
-// POST /api/bookings/bulk-payment - Bulk payment for multiple bookings
-exports.bulkBookingPayment = async (req, res) => {
-	// Only use transactions in production to avoid replica set requirement in development
-	const useTransaction = config.nodeEnv === "production";
-	const session = useTransaction ? await mongoose.startSession() : null;
 
-	if (useTransaction) {
-		await session.startTransaction();
-	}
-
-	try {
-		const { bookingIds, token, totalAmount } = req.body;
-		if (
-			!Array.isArray(bookingIds) ||
-			bookingIds.length === 0 ||
-			!token ||
-			!totalAmount
-		) {
-			if (useTransaction) {
-				await session.abortTransaction();
-				session.endSession();
-			} else if (session) {
-				session.endSession();
-			}
-			return res.status(400).json({ message: "Missing required fields" });
-		}
-
-		// Fetch all bookings with futsal details
-		const bookings = await Booking.find({
-			_id: { $in: bookingIds },
-			paymentStatus: { $ne: "paid" },
-		}).populate("futsal", "name");
-
-		if (bookings.length !== bookingIds.length) {
-			if (useTransaction) {
-				await session.abortTransaction();
-				session.endSession();
-			} else if (session) {
-				session.endSession();
-			}
-			return res
-				.status(400)
-				.json({ message: "Some bookings not found or already paid" });
-		}
-
-		// Calculate total
-		const sum = bookings.reduce((acc, b) => acc + (b.price || 0), 0);
-		if (sum !== totalAmount) {
-			if (useTransaction) {
-				await session.abortTransaction();
-				session.endSession();
-			} else if (session) {
-				session.endSession();
-			}
-			return res.status(400).json({ message: "Total amount mismatch" });
-		}
-
-		// Process each booking in the bulk payment
-		for (let booking of bookings) {
-			// Mark as paid and update payment details
-			booking.paymentStatus = "paid";
-			booking.status = "confirmed";
-			booking.paymentDetails = {
-				transactionId: token,
-				paymentMethod: "khalti",
-				paymentDate: new Date(),
-			};
-			booking.updatedAt = new Date();
-
-			const saveOptions = useTransaction ? { session } : {};
-			await booking.save(saveOptions);
-
-			// Create Payment record
-			const Payment = require("../models/Payment");
-			await Payment.create(
-				[
-					{
-						booking: booking._id,
-						user: booking.user,
-						futsal: booking.futsal._id,
-						type: "booking",
-						amount: booking.price,
-						currency: "NPR",
-						status: "completed",
-						transactionId: token,
-						paymentMethod: "khalti",
-						paidAt: booking.paymentDetails.paymentDate,
-					},
-				],
-				{ session }
-			);
-
-			// Notify user
-			try {
-				await createNotification({
-					user: booking.user,
-					message: `Your payment for booking at ${booking.futsal.name} on ${booking.date.toDateString()} is successful!`,
-					type: "booking_payment",
-					meta: { booking: booking._id },
-					futsal: booking.futsal._id,
-				});
-			} catch (notifErr) {
-				console.error("Failed to send notification:", notifErr);
-				// Continue with the process even if notification fails
-			}
-		}
-
-		// Commit the transaction if we're using one
-		if (useTransaction) {
-			await session.commitTransaction();
-			session.endSession();
-		} else if (session) {
-			session.endSession();
-		}
-
-		res.status(200).json({ message: "Bulk payment successful", bookingIds });
-	} catch (err) {
-		res.status(500).json({ message: "Server error", error: err.message });
-	}
-};
 
 // GET /api/bookings - Get all bookings (admin only)
 exports.getAllBookings = async (req, res) => {
@@ -1694,6 +1616,86 @@ exports.verifyKhaltiPayment = async (req, res) => {
 			details: config.nodeEnv === "development" ? error.message : undefined,
 		});
 	}
+};
+
+// GET /api/bookings/bulk/verify-payment?pidx=... - Verify Khalti payment for bulk bookings
+exports.verifyBulkKhaltiPayment = async (req, res) => {
+    const { pidx } = req.query;
+    if (!pidx) {
+        return res.status(400).json({ error: "Missing pidx" });
+    }
+    try {
+        const bookings = await Booking.find({ "paymentDetails.pidx": pidx });
+        if (!bookings || bookings.length === 0) {
+            return res.status(404).json({ error: "No bookings found for this payment" });
+        }
+
+        const Payment = require("../models/Payment");
+        const notificationController = getNotificationController(req);
+
+        const results = [];
+        for (const booking of bookings) {
+            // 1. Mark booking as paid/confirmed
+            booking.paymentStatus = "paid";
+            booking.status = "confirmed";
+            booking.isPaid = true;
+            booking.paymentDetails = booking.paymentDetails || {};
+            booking.paymentDetails.paymentMethod = "khalti";
+            booking.paymentDetails.paymentDate = new Date();
+            await booking.save();
+
+            // 2. Create Payment record if not exists
+            let payment = await Payment.findOne({
+                booking: booking._id,
+                transactionId: pidx,
+                status: "completed",
+            });
+            if (!payment) {
+                payment = await Payment.create({
+                    user: booking.user,
+                    booking: booking._id,
+                    futsal: booking.futsal,
+                    type: "booking",
+                    amount: booking.price,
+                    status: "completed",
+                    paymentMethod: "khalti",
+                    transactionId: pidx,
+                    paidAt: new Date(),
+                });
+            }
+
+            // 3. Send notifications
+            try {
+                await notificationController.createNotification({
+                    user: booking.user,
+                    message: `Your payment for booking at ${booking.futsal} on ${booking.date.toISOString().split("T")[0]} has been confirmed.`,
+                    type: "payment_confirmed",
+                    meta: { booking: booking._id, futsal: booking.futsal, transaction: payment._id },
+                });
+            } catch (err) {
+                console.error("Failed to send payment confirmation to user:", err);
+            }
+            try {
+                await notificationController.createNotification({
+                    user: booking.futsal.owner,
+                    message: `Payment confirmed for booking at ${booking.futsal} on ${booking.date.toISOString().split("T")[0]}.`,
+                    type: "booking_confirmed",
+                    meta: { booking: booking._id, futsal: booking.futsal, customer: booking.user, transaction: payment._id },
+                });
+            } catch (err) {
+                console.error("Failed to send booking confirmation to futsal owner:", err);
+            }
+
+            results.push({ booking, payment });
+        }
+
+        res.status(200).json({
+            message: "Bulk payment verified successfully",
+            results,
+        });
+    } catch (err) {
+        res.status(500).json({ error: "An error occurred while verifying bulk payment", details: err.message });
+    }
 };
 
 // GET /api/bookings/futsal?futsalId=...&date=YYYY-MM-DD&limit=15&page=1

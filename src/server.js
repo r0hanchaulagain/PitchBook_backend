@@ -1,3 +1,4 @@
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 const { app, server } = require("./app");
 const { connectDB } = require("./config/db_connection");
 const config = require("./config/env_config");
