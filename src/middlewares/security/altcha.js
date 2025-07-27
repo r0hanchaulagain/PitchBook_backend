@@ -33,6 +33,7 @@ const verifyAltcha = (req, res, next) => {
 			throw new Error("Unsupported algorithm");
 		}
 
+		// Verify HMAC hash
 		const hmac = crypto.createHmac(
 			altchaConfig.algorithm,
 			altchaConfig.hmacKey
@@ -41,31 +42,43 @@ const verifyAltcha = (req, res, next) => {
 		const expectedHash = hmac.digest("hex");
 
 		if (challenge.hash !== expectedHash) {
-			throw new ValidationError("Invalid ALTCHA hash");
+			throw new Error("Invalid ALTCHA hash");
 		}
 
-		const verifier = crypto.createVerify(altchaConfig.algorithm);
-		verifier.update(challenge.challenge);
-		const isVerified = verifier.verify(
-			"-----BEGIN PUBLIC KEY-----\n" +
-				"MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE" +
-				challenge.publicKey +
-				"\n" +
-				"-----END PUBLIC KEY-----",
-			challenge.signature,
-			"base64"
-		);
-
-		if (!isVerified) {
-			throw new ValidationError("Invalid ALTCHA signature");
+		// Verify signature with proper error handling
+		try {
+			const verifier = crypto.createVerify(altchaConfig.algorithm);
+			verifier.update(challenge.challenge);
+			
+			// Use the full public key if available, otherwise reconstruct
+			let publicKeyPem;
+			if (challenge.publicKeyFull) {
+				publicKeyPem = challenge.publicKeyFull;
+			} else {
+				// Reconstruct the public key properly
+				publicKeyPem = "-----BEGIN PUBLIC KEY-----\n" +
+					"MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE" +
+					challenge.publicKey +
+					"\n-----END PUBLIC KEY-----";
+			}
+			
+			const isVerified = verifier.verify(publicKeyPem, challenge.signature, "base64");
+			
+			if (!isVerified) {
+				throw new Error("Invalid ALTCHA signature");
+			}
+		} catch (cryptoError) {
+			console.error("Crypto verification error:", cryptoError.message);
+			throw new Error("Invalid ALTCHA signature");
 		}
 
+		// Check challenge expiration
 		if (challenge.timestamp) {
 			const challengeTime = new Date(challenge.timestamp).getTime();
 			const currentTime = Date.now();
 
 			if (currentTime - challengeTime > altchaConfig.maxChallengeAge) {
-				throw new ValidationError("ALTCHA challenge has expired");
+				throw new Error("ALTCHA challenge has expired");
 			}
 		}
 
@@ -83,7 +96,7 @@ const verifyAltcha = (req, res, next) => {
 
 const requireAltcha = (req, res, next) => {
 	if (!req.altcha || !req.altcha.verified) {
-		return next(new ValidationError("CAPTCHA verification required"));
+		return next(new Error("CAPTCHA verification required"));
 	}
 	next();
 };

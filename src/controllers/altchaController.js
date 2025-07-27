@@ -28,7 +28,7 @@ const generateChallenge = () => {
 		sign.end();
 		const signature = sign.sign(privateKey, "base64");
 
-		// Extract just the key content (remove headers/footers)
+		// Store the full public key for verification
 		const publicKeyContent = publicKey
 			.replace("-----BEGIN PUBLIC KEY-----", "")
 			.replace("-----END PUBLIC KEY-----", "")
@@ -41,6 +41,7 @@ const generateChallenge = () => {
 			hash,
 			signature,
 			publicKey: publicKeyContent,
+			publicKeyFull: publicKey, // Store the full PEM for verification
 			maxNumber: 1000000, // Adjust based on desired complexity
 			timestamp: Date.now(),
 		};
@@ -87,20 +88,30 @@ const verifyChallenge = (challenge) => {
 			throw new Error("Invalid hash");
 		}
 
-		// Verify the signature
-		const verifier = crypto.createVerify(altchaConfig.algorithm);
-		verifier.update(challengeObj.challenge);
-		const isVerified = verifier.verify(
-			"-----BEGIN PUBLIC KEY-----\n" +
-				"MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE" +
-				challengeObj.publicKey +
-				"\n" +
-				"-----END PUBLIC KEY-----",
-			challengeObj.signature,
-			"base64"
-		);
-
-		if (!isVerified) {
+		// Verify the signature with proper error handling
+		try {
+			const verifier = crypto.createVerify(altchaConfig.algorithm);
+			verifier.update(challengeObj.challenge);
+			
+			// Use the full public key if available, otherwise reconstruct
+			let publicKeyPem;
+			if (challengeObj.publicKeyFull) {
+				publicKeyPem = challengeObj.publicKeyFull;
+			} else {
+				// Reconstruct the public key properly
+				publicKeyPem = "-----BEGIN PUBLIC KEY-----\n" +
+					"MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE" +
+					challengeObj.publicKey +
+					"\n-----END PUBLIC KEY-----";
+			}
+			
+			const isVerified = verifier.verify(publicKeyPem, challengeObj.signature, "base64");
+			
+			if (!isVerified) {
+				throw new Error("Invalid signature");
+			}
+		} catch (cryptoError) {
+			console.error("Crypto verification error:", cryptoError.message);
 			throw new Error("Invalid signature");
 		}
 

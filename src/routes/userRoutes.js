@@ -22,17 +22,62 @@ const {
 	deleteUserValidator,
 } = require("../validators/userValidators");
 const { authenticate, authorize } = require("../middlewares/auth");
+const { verifyAltcha } = require("../middlewares/security/altcha");
+const { passport } = require("../config/google_oauth");
 const multer = require("multer");
 const upload = multer({ dest: "uploads/" });
 const router = express.Router();
 
-router.post("/register", registerValidator, register);
+// Registration with ALTCHA CAPTCHA protection
+router.post("/register", registerValidator, verifyAltcha, register);
 router.post("/login", loginValidator, login);
 router.post("/forgot-password", forgotPasswordValidator, forgotPassword);
 router.post("/reset-password", resetPasswordValidator, resetPassword);
 router.get("/logout", authenticate, logout);
 router.post("/refresh-token", authenticate, refreshToken);
 router.get("/me", authenticate, getProfile);
+
+// Google OAuth Routes
+router.get("/google", passport.authenticate("google", { scope: ["profile", "email"] }));
+
+router.get("/google/callback", 
+	passport.authenticate("google", { 
+		failureRedirect: "/login",
+		session: false 
+	}),
+	async (req, res) => {
+		try {
+			// Generate JWT token for the authenticated user
+			const jwt = require("jsonwebtoken");
+			const config = require("../config/env_config");
+			
+			const token = jwt.sign(
+				{ id: req.user._id, role: req.user.role }, 
+				config.jwtSecret, 
+				{ expiresIn: "7d" }
+			);
+
+			// Redirect to frontend with token
+			const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
+			const redirectUrl = `${frontendUrl}/auth/google-success?token=${token}&user=${encodeURIComponent(JSON.stringify({
+				id: req.user._id,
+				email: req.user.email,
+				role: req.user.role,
+				phone: req.user.phone,
+				fullName: req.user.fullName,
+				profileImage: req.user.profileImage,
+				authProvider: req.user.authProvider
+			}))}`;
+			
+			res.redirect(redirectUrl);
+		} catch (error) {
+			console.error("Google OAuth callback error:", error);
+			const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
+			res.redirect(`${frontendUrl}/auth/google-error`);
+		}
+	}
+);
+
 router.post(
 	"/upload-profile-image",
 	authenticate,
