@@ -40,7 +40,7 @@ router.post(
 	registerValidator,
 	uploadProfileImage
 );
-router.put(
+router.post(
 	"/update-profile-image",
 	authenticate,
 	upload.single("image"),

@@ -1,5 +1,13 @@
 const mongoose = require("mongoose");
 
+const teamBUserSchema = new mongoose.Schema({
+    user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    name: { type: String },
+    email: { type: String },
+    phone: { type: String },
+    joinedAt: { type: Date }
+});
+
 const BookingSchema = new mongoose.Schema({
 	user: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
 	futsal: {
@@ -13,6 +21,7 @@ const BookingSchema = new mongoose.Schema({
 	price: { type: Number, required: true },
 	teamA: { type: Boolean, required: true },
 	teamB: { type: Boolean, required: true },
+	teamBUser: { type: teamBUserSchema },
 	bookingType: {
 		type: String,
 		enum: ["full", "partial"],

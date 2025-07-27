@@ -168,9 +168,11 @@ exports.getFutsals = async (req, res) => {
 
 		const futsalsWithRatings = await Promise.all(
 			futsals.map(async (futsal) => {
-				const { avg: avgRating, count: reviewCount } = await getAverageRating(futsal._id);
+				const { avg: avgRating, count: reviewCount } = await getAverageRating(
+					futsal._id
+				);
 				const { calculateDynamicPrice } = require("../utils/pricing");
-				
+
 				// Calculate dynamic price
 				let finalPrice = futsal.pricing?.basePrice || 0;
 				try {
@@ -183,7 +185,11 @@ exports.getFutsals = async (req, res) => {
 						reviewCount,
 					});
 				} catch (priceError) {
-					console.error('Price calculation failed for futsal:', futsal._id, priceError);
+					console.error(
+						"Price calculation failed for futsal:",
+						futsal._id,
+						priceError
+					);
 				}
 
 				return {
@@ -192,8 +198,8 @@ exports.getFutsals = async (req, res) => {
 					reviewCount,
 					pricing: {
 						...futsal.pricing,
-						finalPrice
-					}
+						finalPrice,
+					},
 				};
 			})
 		);
@@ -360,14 +366,14 @@ exports.getFutsalById = async (req, res) => {
 			dateToCheck = now.toISOString().slice(0, 10);
 		}
 		try {
-            isHolidayValue = await Promise.race([
-                isHoliday(dateToCheck),
-                new Promise((resolve) => setTimeout(() => resolve(false), 1000))
-            ]);
-        } catch (e) {
-            console.error('Error checking holiday status:', e);
-            isHolidayValue = false;
-        }
+			isHolidayValue = await Promise.race([
+				isHoliday(dateToCheck),
+				new Promise((resolve) => setTimeout(() => resolve(false), 1000)),
+			]);
+		} catch (e) {
+			console.error("Error checking holiday status:", e);
+			isHolidayValue = false;
+		}
 		const futsalObj = {
 			...futsal.toObject(),
 			pricing: {
@@ -526,7 +532,7 @@ const getDashboardData = async (futsalId) => {
 		futsal: futsalId,
 		date: { $gte: today, $lt: tomorrow },
 		status: { $nin: ["cancelled"] },
-	});
+	}).populate("user", "fullName");
 
 	const totalSlots = 12;
 	const bookedSlots = todaysBookings.length;
@@ -571,6 +577,29 @@ const getDashboardData = async (futsalId) => {
 	const reviewCount = reviewsAgg[0]?.count || 0;
 
 	const occupancy = Math.round((bookedSlots / totalSlots) * 100);
+
+	// Get today's schedule (bookings for today)
+	const todaysSchedule = todaysBookings.map(booking => ({
+		id: booking._id,
+		startTime: booking.startTime,
+		endTime: booking.endTime,
+		customerName: booking.user?.fullName || "Unknown",
+		status: booking.status,
+		price: booking.price,
+		bookingType: booking.bookingType,
+		teamA: booking.teamA,
+		teamB: booking.teamB
+	})).sort((a, b) => a.startTime.localeCompare(b.startTime));
+
+	// Get recent notifications for the futsal owner
+	const Notification = require("../models/Notification");
+	const recentNotifications = await Notification.find({
+		user: futsal.owner._id,
+		futsal: futsalId
+	})
+	.sort({ createdAt: -1 })
+	.limit(5)
+	.select("message type createdAt meta");
 
 	return {
 		currentPricing: {
@@ -619,6 +648,26 @@ const getDashboardData = async (futsalId) => {
 				label: "Occupancy",
 				icon: "users",
 			},
+		},
+
+		// Today's schedule
+		todaysSchedule: {
+			bookings: todaysSchedule,
+			total: todaysSchedule.length,
+			hasBookings: todaysSchedule.length > 0
+		},
+
+		// Recent notifications
+		recentNotifications: {
+			notifications: recentNotifications.map(notification => ({
+				id: notification._id,
+				message: notification.message,
+				type: notification.type,
+				createdAt: notification.createdAt,
+				meta: notification.meta
+			})),
+			total: recentNotifications.length,
+			hasNotifications: recentNotifications.length > 0
 		},
 
 		futsalId: futsal._id,

@@ -1,9 +1,9 @@
 // api_config.js
 const express = require("express");
 const cookieParser = require("cookie-parser");
-const session = require("express-session");
+// const session = require("express-session");
 const morgan = require("morgan");
-const rateLimit = require("express-rate-limit");
+
 
 const createMongoSanitizer = require("../utils/mongoSanitizer");
 const logger = require("../utils/logger");
@@ -14,11 +14,11 @@ const { rateLimiterConfig } = require("../middlewares/security/rate_limit");
 const { verifyAltcha } = require("../middlewares/security/altcha");
 
 function setupMiddlewares(app) {
-	app.set('trust proxy', 1);
+	app.set("trust proxy", 1);
 
 	// Basic express middlewares
-	app.use(express.json({ limit: '10mb' }));
-	app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+	app.use(express.json({ limit: "10mb" }));
+	app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 	app.use(cookieParser(process.env.COOKIE_SECRET));
 
 	// Session middleware
@@ -27,7 +27,7 @@ function setupMiddlewares(app) {
 	// 	name: 'psifi.session',
 	// 	resave: false,
 	// 	saveUninitialized: false,
-	// 	rolling: true, 
+	// 	rolling: true,
 	// 	cookie: {
 	// 		secure: process.env.NODE_ENV === 'production',
 	// 		httpOnly: true,
@@ -68,13 +68,13 @@ function setupMiddlewares(app) {
 		const skipPaths = [
 			"/api/v1/users/me",
 			"/health",
-			"/api/v1/payments/webhook"
+			"/api/v1/payments/webhook",
 		];
-		
+
 		if (skipPaths.includes(req.path)) {
 			return next();
 		}
-		
+
 		return generalLimiter(req, res, next);
 	});
 
@@ -96,7 +96,7 @@ function setupMiddlewares(app) {
 	morgan.token("error-message", (req, res) => res.locals.errorMessage || "-");
 	morgan.token("session-id", (req, res) => req.session?.id || "-");
 	morgan.token("user-id", (req, res) => req.user?.id || "-");
-	
+
 	app.use(
 		morgan(
 			":method :url :status :response-time ms - :res[content-length] - :error-message - session::session-id - user::user-id",
@@ -113,10 +113,10 @@ function setupMiddlewares(app) {
 
 function setupRoutes(app) {
 	app.get("/health", (req, res) => {
-		res.status(200).json({ 
-			status: "ok", 
+		res.status(200).json({
+			status: "ok",
 			timestamp: new Date().toISOString(),
-			environment: process.env.NODE_ENV
+			environment: process.env.NODE_ENV,
 		});
 	});
 
@@ -129,8 +129,8 @@ function setupRoutes(app) {
 	// 			userAgent: req.headers['user-agent'],
 	// 			sessionId: req.session?.id || 'no-session'
 	// 		});
-			
-	// 		res.json({ 
+
+	// 		res.json({
 	// 			csrfToken,
 	// 			expires: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
 	// 		});
@@ -151,16 +151,17 @@ function setupRoutes(app) {
 	app.use("/api/v1/payments", require("../routes/paymentRoutes"));
 	app.use("/api/v1/reviews", require("../routes/reviewRoutes"));
 	app.use("/api/v1/altcha", require("../routes/altchaRoutes"));
+	app.use("/api/v1/contact", require("../routes/contactRoutes"));
 
 	// 404 handler
 	app.use((req, res) => {
 		logger.warn(`404 - Route not found: ${req.method} ${req.path}`, {
 			ip: req.ip,
-			userAgent: req.headers['user-agent']
+			userAgent: req.headers["user-agent"],
 		});
-		res.status(404).json({ 
+		res.status(404).json({
 			error: "Not Found",
-			message: "The requested resource was not found"
+			message: "The requested resource was not found",
 		});
 	});
 }
@@ -175,22 +176,23 @@ function setupErrorHandling(app) {
 			path: req.path,
 			method: req.method,
 			ip: req.ip,
-			userAgent: req.headers['user-agent'],
-			sessionId: req.session?.id || 'no-session',
-			userId: req.user?.id || 'anonymous'
+			userAgent: req.headers["user-agent"],
+			sessionId: req.session?.id || "no-session",
+			userId: req.user?.id || "anonymous",
 		});
 
 		// Set error message for logging
 		res.locals.errorMessage = err.message;
 
 		// Don't expose internal errors in production
-		const message = process.env.NODE_ENV === 'production' 
-			? "Internal Server Error"
-			: err.message;
+		const message =
+			process.env.NODE_ENV === "production"
+				? "Internal Server Error"
+				: err.message;
 
-		res.status(err.status || 500).json({ 
+		res.status(err.status || 500).json({
 			error: message,
-			...(process.env.NODE_ENV === 'development' && { stack: err.stack })
+			...(process.env.NODE_ENV === "development" && { stack: err.stack }),
 		});
 	});
 }

@@ -15,8 +15,8 @@ const upload = multer({ dest: "uploads/" });
 const router = express.Router();
 
 router.get("/", futsalController.getFutsals);
-router.get("/:id", futsalController.getFutsalById);
 router.get("/dashboard-summary", futsalController.getDashboardSummary);
+router.get("/:id", futsalController.getFutsalById);
 
 router.put(
 	"/:id",

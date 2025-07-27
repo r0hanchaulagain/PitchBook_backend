@@ -16,60 +16,83 @@ function formatDate(adYear, adMonth, adDay) {
 }
 
 async function fetchHolidaysForBSYear(bsYear) {
-    try {
-        if (holidayFileExists(bsYear)) {
-            try {
-                const holidaysArr = readHolidayFile(bsYear);
-                if (holidaysArr && Array.isArray(holidaysArr) && holidaysArr.length > 0) {
-                    return new Set(holidaysArr);
-                }
-            } catch (fileError) {
-                console.error(`Error reading holiday file for BS ${bsYear}:`, fileError);
-            }
-        }
+	try {
+		if (holidayFileExists(bsYear)) {
+			try {
+				const holidaysArr = readHolidayFile(bsYear);
+				if (
+					holidaysArr &&
+					Array.isArray(holidaysArr) &&
+					holidaysArr.length > 0
+				) {
+					return new Set(holidaysArr);
+				}
+			} catch (fileError) {
+				console.error(
+					`Error reading holiday file for BS ${bsYear}:`,
+					fileError
+				);
+			}
+		}
 
-        if (holidayCache[bsYear] && Date.now() - holidayCache[bsYear].fetchedAt < 24 * 60 * 60 * 1000) {
-            return holidayCache[bsYear].holidays;
-        }
+		if (
+			holidayCache[bsYear] &&
+			Date.now() - holidayCache[bsYear].fetchedAt < 24 * 60 * 60 * 1000
+		) {
+			return holidayCache[bsYear].holidays;
+		}
 
-        console.log(`Fetching holidays for BS ${bsYear} from GitHub...`);
-        const response = await axios.get(
-            `https://raw.githubusercontent.com/Saral-Patro/data/main/${bsYear}.json`,
-            { 
-                timeout: 5000, // 5 second timeout
-                headers: { 'Accept': 'application/json' }
-            }
-        );
+		console.log(`Fetching holidays for BS ${bsYear} from GitHub...`);
+		const response = await axios.get(
+			`https://raw.githubusercontent.com/Saral-Patro/data/main/${bsYear}.json`,
+			{
+				timeout: 5000, // 5 second timeout
+				headers: { Accept: "application/json" },
+			}
+		);
 
-        const holidays = [];
-        if (response.data && Array.isArray(response.data)) {
-            response.data.forEach(holiday => {
-                if (holiday.isHoliday && holiday.adYear && holiday.adMonth && holiday.adDay) {
-                    holidays.push(formatDate(holiday.adYear, holiday.adMonth, holiday.adDay));
-                }
-            });
-        }
+		const holidays = [];
+		if (response.data && Array.isArray(response.data)) {
+			response.data.forEach((holiday) => {
+				if (
+					holiday.isHoliday &&
+					holiday.adYear &&
+					holiday.adMonth &&
+					holiday.adDay
+				) {
+					holidays.push(
+						formatDate(holiday.adYear, holiday.adMonth, holiday.adDay)
+					);
+				}
+			});
+		}
 
-        if (holidays.length > 0) {
-            try {
-                writeHolidayFile(bsYear, holidays);
-            } catch (writeError) {
-                console.error(`Error writing holiday file for BS ${bsYear}:`, writeError);
-            }
-        }
+		if (holidays.length > 0) {
+			try {
+				writeHolidayFile(bsYear, holidays);
+			} catch (writeError) {
+				console.error(
+					`Error writing holiday file for BS ${bsYear}:`,
+					writeError
+				);
+			}
+		}
 
-        const holidaysSet = new Set(holidays);
-        holidayCache[bsYear] = { 
-            holidays: holidaysSet, 
-            fetchedAt: Date.now() 
-        };
-        
-        return holidaysSet;
-    } catch (error) {
-        console.error(`Error fetching holidays for BS ${bsYear} from GitHub:`, error);
-        // Return an empty set if there's an error
-        return new Set();
-    }
+		const holidaysSet = new Set(holidays);
+		holidayCache[bsYear] = {
+			holidays: holidaysSet,
+			fetchedAt: Date.now(),
+		};
+
+		return holidaysSet;
+	} catch (error) {
+		console.error(
+			`Error fetching holidays for BS ${bsYear} from GitHub:`,
+			error
+		);
+		// Return an empty set if there's an error
+		return new Set();
+	}
 }
 
 async function isHoliday(adDate) {
