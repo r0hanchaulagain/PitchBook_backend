@@ -1,14 +1,13 @@
 // api_config.js
 const express = require("express");
 const cookieParser = require("cookie-parser");
-// const session = require("express-session");
+const session = require("express-session");
 const morgan = require("morgan");
-
 
 const createMongoSanitizer = require("../utils/mongoSanitizer");
 const logger = require("../utils/logger");
 
-const { setupCSRF } = require("../middlewares/security/csrf");
+const { setupSimpleCSRF } = require("../middlewares/security/csrf");
 const { setupSecurityHeaders } = require("../middlewares/security/headers");
 const { rateLimiterConfig } = require("../middlewares/security/rate_limit");
 const { verifyAltcha } = require("../middlewares/security/altcha");
@@ -21,21 +20,21 @@ function setupMiddlewares(app) {
 	app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 	app.use(cookieParser(process.env.COOKIE_SECRET));
 
-	// Session middleware
-	// app.use(session({
-	// 	secret: process.env.SESSION_SECRET,
-	// 	name: 'psifi.session',
-	// 	resave: false,
-	// 	saveUninitialized: false,
-	// 	rolling: true,
-	// 	cookie: {
-	// 		secure: process.env.NODE_ENV === 'production',
-	// 		httpOnly: true,
-	// 		maxAge: 24 * 60 * 60 * 1000, // 24 hours
-	// 		sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax',
-	// 		domain: process.env.NODE_ENV === 'production' ? process.env.COOKIE_DOMAIN : undefined
-	// 	},
-	// }));
+	// Session middleware - Required for CSRF protection
+	app.use(session({
+		secret: process.env.SESSION_SECRET || process.env.COOKIE_SECRET,
+		name: 'psifi.session',
+		resave: false,
+		saveUninitialized: false,
+		rolling: true,
+		cookie: {
+			secure: process.env.NODE_ENV === 'production',
+			httpOnly: true,
+			maxAge: 24 * 60 * 60 * 1000, // 24 hours
+			sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax',
+			domain: process.env.NODE_ENV === 'production' ? process.env.COOKIE_DOMAIN : undefined
+		},
+	}));
 
 	// Setup security headers
 	const { helmetConfig, customHeaders, corsConfig } = setupSecurityHeaders();
@@ -43,10 +42,10 @@ function setupMiddlewares(app) {
 	app.use(customHeaders);
 	app.use(corsConfig);
 
-	// Setup CSRF protection
-	// const { csrfMiddleware, csrfProtection, csrfErrorHandler } = setupCSRF();
-	// app.use(csrfMiddleware);
-	// app.use(csrfProtection);
+	// Setup CSRF protection using simple implementation
+	const { csrfMiddleware, csrfProtection, csrfErrorHandler } = setupSimpleCSRF();
+	app.use(csrfMiddleware);
+	app.use(csrfProtection);
 
 	// Setup request sanitization
 	app.use(
@@ -79,18 +78,19 @@ function setupMiddlewares(app) {
 	});
 
 	// Special rate limiter for CSRF token endpoint
-	// const csrfTokenLimiter = rateLimit({
-	// 	windowMs: 15 * 60 * 1000, // 15 minutes
-	// 	max: 50, // limit each IP to 50 requests per windowMs
-	// 	message: {
-	// 		error: "Too many CSRF token requests",
-	// 		message: "Please try again later"
-	// 	},
-	// 	standardHeaders: true,
-	// 	legacyHeaders: false,
-	// });
+	const { rateLimit } = require("express-rate-limit");
+	const csrfTokenLimiter = rateLimit({
+		windowMs: 15 * 60 * 1000, // 15 minutes
+		max: 50, // limit each IP to 50 requests per windowMs
+		message: {
+			error: "Too many CSRF token requests",
+			message: "Please try again later"
+		},
+		standardHeaders: true,
+		legacyHeaders: false,
+	});
 
-	// app.use("/api/v1/csrf-token", csrfTokenLimiter);
+	app.use("/api/v1/csrf-token", csrfTokenLimiter);
 
 	// Setup logging
 	morgan.token("error-message", (req, res) => res.locals.errorMessage || "-");
@@ -108,7 +108,9 @@ function setupMiddlewares(app) {
 			}
 		)
 	);
-	// app.use(csrfErrorHandler);
+	
+	// Add CSRF error handler
+	app.use(csrfErrorHandler);
 }
 
 function setupRoutes(app) {
@@ -120,28 +122,29 @@ function setupRoutes(app) {
 		});
 	});
 
-	// const { generateCsrfToken } = setupCSRF();
-	// app.get("/api/v1/csrf-token", (req, res) => {
-	// 	try {
-	// 		const csrfToken = generateCsrfToken(req, res);
-	// 		logger.debug("CSRF token generated", {
-	// 			ip: req.ip,
-	// 			userAgent: req.headers['user-agent'],
-	// 			sessionId: req.session?.id || 'no-session'
-	// 		});
+	// CSRF token endpoint
+	const { generateToken } = setupSimpleCSRF();
+	app.get("/api/v1/csrf-token", (req, res) => {
+		try {
+			const csrfToken = generateToken(req);
+			logger.debug("CSRF token generated", {
+				ip: req.ip,
+				userAgent: req.headers['user-agent'],
+				sessionId: req.session?.id || 'no-session'
+			});
 
-	// 		res.json({
-	// 			csrfToken,
-	// 			expires: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
-	// 		});
-	// 	} catch (error) {
-	// 		logger.error("Failed to generate CSRF token", error);
-	// 		res.status(500).json({
-	// 			error: "Failed to generate CSRF token",
-	// 			message: "Please try again"
-	// 		});
-	// 	}
-	// });
+			res.json({
+				csrfToken,
+				expires: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+			});
+		} catch (error) {
+			logger.error("Failed to generate CSRF token", error);
+			res.status(500).json({
+				error: "Failed to generate CSRF token",
+				message: "Please try again"
+			});
+		}
+	});
 
 	// API routes
 	app.use("/api/v1/users", require("../routes/userRoutes"));
