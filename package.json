@@ -15,7 +15,7 @@
 	"license": "ISC",
 	"packageManager": "pnpm@10.7.1",
 	"dependencies": {
-		"altcha": "^2.0.5",
+		"altcha-lib": "^1.3.0",
 		"axios": "^1.8.4",
 		"bcryptjs": "^3.0.2",
 		"cloudinary": "^2.7.0",

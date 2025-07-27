@@ -1,138 +1,112 @@
-const crypto = require("crypto");
+const { createChallenge, verifySolution, verifyServerSignature, verifyFieldsHash } = require('altcha-lib');
 const altchaConfig = require("../config/altcha");
 
-const generateChallenge = () => {
+const generateChallenge = async () => {
 	try {
-		// Generate a random challenge string
-		const challenge = crypto.randomBytes(16).toString("hex");
-		const salt = crypto.randomBytes(8).toString("hex");
-
-		// Create HMAC hash
-		const hmac = crypto.createHmac(
-			altchaConfig.algorithm,
-			altchaConfig.hmacKey
-		);
-		hmac.update(`${salt}:${challenge}`);
-		const hash = hmac.digest("hex");
-
-		// Generate key pair for this challenge
-		const { publicKey, privateKey } = crypto.generateKeyPairSync("ec", {
-			namedCurve: "prime256v1",
-			publicKeyEncoding: { type: "spki", format: "pem" },
-			privateKeyEncoding: { type: "pkcs8", format: "pem" },
+		// Generate a new random challenge with specified complexity
+		const challenge = await createChallenge({
+			hmacKey: altchaConfig.hmacKey,
+			maxNumber: altchaConfig.maxNumber || 50_000
 		});
 
-		// Sign the challenge with the private key
-		const sign = crypto.createSign(altchaConfig.algorithm);
-		sign.update(challenge);
-		sign.end();
-		const signature = sign.sign(privateKey, "base64");
-
-		// Store the full public key for verification
-		const publicKeyContent = publicKey
-			.replace("-----BEGIN PUBLIC KEY-----", "")
-			.replace("-----END PUBLIC KEY-----", "")
-			.replace(/\s/g, "");
-
-		return {
-			algorithm: altchaConfig.algorithm,
-			challenge,
-			salt,
-			hash,
-			signature,
-			publicKey: publicKeyContent,
-			publicKeyFull: publicKey, // Store the full PEM for verification
-			maxNumber: 1000000, // Adjust based on desired complexity
-			timestamp: Date.now(),
-		};
+		return challenge;
 	} catch (error) {
 		console.error("Error generating ALTCHA challenge:", error);
 		throw new Error("Failed to generate CAPTCHA challenge");
 	}
 };
 
-const verifyChallenge = (challenge) => {
+const verifyChallenge = async (altchaPayload) => {
 	try {
-		if (!challenge) {
-			throw new Error("Challenge is required");
+		if (!altchaPayload) {
+			return {
+				success: false,
+				message: "ALTCHA payload is required",
+				error: "MISSING_PAYLOAD"
+			};
 		}
 
-		// Parse if challenge is a string
-		const challengeObj =
-			typeof challenge === "string" ? JSON.parse(challenge) : challenge;
+		// Verify the solution using the secret HMAC key
+		const verified = await verifySolution(String(altchaPayload), altchaConfig.hmacKey);
 
-		// Verify required fields
-		const requiredFields = [
-			"algorithm",
-			"challenge",
-			"signature",
-			"salt",
-			"hash",
-		];
-		for (const field of requiredFields) {
-			if (!challengeObj[field]) {
-				throw new Error(`Missing required field: ${field}`);
-			}
+		if (!verified) {
+			return {
+				success: false,
+				message: "Invalid ALTCHA payload",
+				error: "INVALID_PAYLOAD"
+			};
 		}
 
-		// Reconstruct the expected hash
-		const hmac = crypto.createHmac(
-			altchaConfig.algorithm,
-			altchaConfig.hmacKey
-		);
-		hmac.update(`${challengeObj.salt}:${challengeObj.challenge}`);
-		const expectedHash = hmac.digest("hex");
-
-		// Verify the hash
-		if (challengeObj.hash !== expectedHash) {
-			throw new Error("Invalid hash");
-		}
-
-		// Verify the signature with proper error handling
-		try {
-			const verifier = crypto.createVerify(altchaConfig.algorithm);
-			verifier.update(challengeObj.challenge);
-			
-			// Use the full public key if available, otherwise reconstruct
-			let publicKeyPem;
-			if (challengeObj.publicKeyFull) {
-				publicKeyPem = challengeObj.publicKeyFull;
-			} else {
-				// Reconstruct the public key properly
-				publicKeyPem = "-----BEGIN PUBLIC KEY-----\n" +
-					"MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE" +
-					challengeObj.publicKey +
-					"\n-----END PUBLIC KEY-----";
-			}
-			
-			const isVerified = verifier.verify(publicKeyPem, challengeObj.signature, "base64");
-			
-			if (!isVerified) {
-				throw new Error("Invalid signature");
-			}
-		} catch (cryptoError) {
-			console.error("Crypto verification error:", cryptoError.message);
-			throw new Error("Invalid signature");
-		}
-
-		// Verify challenge expiration (if timestamp is provided)
-		if (challengeObj.timestamp) {
-			const challengeTime = new Date(challengeObj.timestamp).getTime();
-			const currentTime = Date.now();
-
-			if (currentTime - challengeTime > altchaConfig.maxChallengeAge) {
-				throw new Error("Challenge has expired");
-			}
-		}
-
-		return true;
+		return {
+			success: true,
+			message: "ALTCHA verified successfully"
+		};
 	} catch (error) {
 		console.error("Error verifying ALTCHA challenge:", error);
-		throw error;
+		return {
+			success: false,
+			message: "Verification failed",
+			error: "VERIFICATION_ERROR"
+		};
+	}
+};
+
+const verifyWithSpamFilter = async (altchaPayload, formData) => {
+	try {
+		if (!altchaPayload) {
+			return {
+				success: false,
+				message: "ALTCHA payload is required",
+				error: "MISSING_PAYLOAD"
+			};
+		}
+
+		// Verify the server signature using the API secret
+		const { verificationData, verified } = await verifyServerSignature(String(altchaPayload), altchaConfig.hmacKey);
+
+		if (!verified || !verificationData) {
+			return {
+				success: false,
+				message: "Invalid ALTCHA payload",
+				error: "INVALID_PAYLOAD"
+			};
+		}
+
+		const { classification, fields, fieldsHash } = verificationData;
+
+		if (classification === 'BAD') {
+			return {
+				success: false,
+				message: "Classified as spam",
+				error: "SPAM_CLASSIFICATION"
+			};
+		}
+
+		if (fields && fieldsHash && !await verifyFieldsHash(formData, fields, fieldsHash)) {
+			return {
+				success: false,
+				message: "Invalid fields hash",
+				error: "INVALID_FIELDS_HASH"
+			};
+		}
+
+		return {
+			success: true,
+			message: "ALTCHA verified successfully with spam filter",
+			verificationData
+		};
+	} catch (error) {
+		console.error("Error verifying ALTCHA with spam filter:", error);
+		return {
+			success: false,
+			message: "Verification failed",
+			error: "VERIFICATION_ERROR"
+		};
 	}
 };
 
 module.exports = {
 	generateChallenge,
 	verifyChallenge,
+	verifyWithSpamFilter,
 };
