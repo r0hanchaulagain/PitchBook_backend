@@ -1,4 +1,3 @@
-// src/services/holidayService.js
 const axios = require("axios");
 const dayjs = require("dayjs");
 const fs = require("fs");
@@ -42,11 +41,10 @@ async function fetchHolidaysForBSYear(bsYear) {
 			return holidayCache[bsYear].holidays;
 		}
 
-
 		const response = await axios.get(
 			`https://raw.githubusercontent.com/Saral-Patro/data/main/${bsYear}.json`,
 			{
-				timeout: 5000, // 5 second timeout
+				timeout: 5000,
 				headers: { Accept: "application/json" },
 			}
 		);
@@ -90,7 +88,7 @@ async function fetchHolidaysForBSYear(bsYear) {
 			`Error fetching holidays for BS ${bsYear} from GitHub:`,
 			error
 		);
-		// Return an empty set if there's an error
+
 		return new Set();
 	}
 }

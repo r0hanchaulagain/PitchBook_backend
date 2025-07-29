@@ -3,23 +3,20 @@ const Notification = require("../models/Notification");
 class NotificationService {
 	constructor(io, connectedUsers) {
 		this.io = io;
-		// Defensive: ensure connectedUsers is always a Map
+
 		this.connectedUsers =
 			connectedUsers && typeof connectedUsers.get === "function"
 				? connectedUsers
 				: new Map();
 	}
 
-	// Send notification to a specific user
 	async sendToUser(userId, notification) {
 		try {
-			// Save to database
 			const newNotification = await Notification.create({
 				...notification,
 				user: userId,
 			});
 
-			// If user is online, send via WebSocket
 			if (
 				this.connectedUsers &&
 				typeof this.connectedUsers.get === "function"
@@ -42,7 +39,6 @@ class NotificationService {
 		}
 	}
 
-	// Mark notification as read
 	async markAsRead(notificationId, userId) {
 		return await Notification.findOneAndUpdate(
 			{ _id: notificationId, user: userId },
@@ -51,7 +47,6 @@ class NotificationService {
 		);
 	}
 
-	// Get user notifications
 	async getUserNotifications(userId, { limit = 20, skip = 0 } = {}) {
 		return await Notification.find({ user: userId })
 			.sort({ createdAt: -1 })
@@ -59,7 +54,6 @@ class NotificationService {
 			.limit(limit);
 	}
 
-	// Send booking notification
 	async sendBookingNotification(userId, bookingData) {
 		return this.sendToUser(userId, {
 			type: "booking",
@@ -69,7 +63,6 @@ class NotificationService {
 		});
 	}
 
-	// Send payment notification
 	async sendPaymentNotification(userId, paymentData) {
 		return this.sendToUser(userId, {
 			type: "payment",
