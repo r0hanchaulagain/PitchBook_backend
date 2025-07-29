@@ -7,12 +7,6 @@ cloudinary.config({
 	api_secret: config.cloudinary.apiSecret,
 });
 
-/**
- * Upload an image to Cloudinary
- * @param {string} filePath - Local path or base64 string
- * @param {string} folder - Cloudinary folder (optional)
- * @returns {Promise<{url: string, public_id: string}>}
- */
 const uploadImage = (filePath, folder = "") => {
 	return cloudinary.uploader.upload(filePath, {
 		folder,
@@ -20,11 +14,6 @@ const uploadImage = (filePath, folder = "") => {
 	});
 };
 
-/**
- * Delete an image from Cloudinary
- * @param {string} publicId
- * @returns {Promise}
- */
 const deleteImage = (publicId) => {
 	return cloudinary.uploader.destroy(publicId);
 };

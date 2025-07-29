@@ -288,7 +288,7 @@ const getNotificationController = (req = {}) => {
 		);
 		return {
 			createNotification: async (data) => {
-				console.log("Mock notification:", data);
+	
 				return { _id: new mongoose.Types.ObjectId() };
 			},
 		};
@@ -771,7 +771,7 @@ exports.createBulkBookingWithPayment = async (req, res) => {
         // Save all bookings
         const createdBookings = await Booking.insertMany(bookings, { session });
 		const bookingIds = createdBookings.map((b) => b._id);
-		console.log("Bulk booking debug: Created bookingIds:", bookingIds);
+		
 
 		// For development/testing: workaround for Khalti display bug
 		const amountToSend = Math.min(totalPrice, 1000); // send in rupees for Khalti UI bug workaround
@@ -787,7 +787,7 @@ exports.createBulkBookingWithPayment = async (req, res) => {
 		};
 		// Generate Khalti payment URL
 		const paymentInit = await initiateKhaltiPayment(khaltiPayload);
-		console.log("Bulk booking debug: paymentInit.pidx:", paymentInit.pidx);
+
 
 		// Update bookings with payment reference (no session)
 		const updateResult = await Booking.updateMany(
@@ -799,14 +799,9 @@ exports.createBulkBookingWithPayment = async (req, res) => {
             },
 			}
 		);
-		console.log("Bulk booking debug: updateMany result:", updateResult);
 
-		// Fetch and log a sample booking after update
-		const sampleBooking = await Booking.findById(bookingIds[0]);
-		console.log(
-			"Bulk booking debug: sample booking after update:",
-			sampleBooking
-        );
+
+
 
         // Create notifications
         const notificationPromises = [];
@@ -1283,9 +1278,7 @@ exports.initiateKhaltiPayment = async (req, res) => {
 
 // GET /api/bookings/:id/verify-payment?pidx=... - Verify Khalti payment for a booking
 exports.verifyKhaltiPayment = async (req, res) => {
-	console.log("=== Starting payment verification ===");
-	console.log("Booking ID:", req.params.id);
-	console.log("PIDX:", req.query.pidx);
+	
 
 	// Only use transactions in production to avoid replica set requirement in development
 	const useTransaction = config.nodeEnv === "production";
@@ -1328,14 +1321,7 @@ exports.verifyKhaltiPayment = async (req, res) => {
 
 		const booking = await query;
 
-		console.log("Found booking:", {
-			id: booking?._id,
-			currentStatus: booking?.status,
-			isPaid: booking?.isPaid,
-			paymentStatus: booking?.paymentStatus,
-			paymentDetails: booking?.paymentDetails,
-			paymentExpiresAt: booking?.paymentExpiresAt,
-		});
+
 
 		if (!booking) {
 			if (useTransaction) {
@@ -1377,23 +1363,16 @@ exports.verifyKhaltiPayment = async (req, res) => {
 		}
 
 		// Lookup payment status from Khalti
-		console.log("Looking up payment status from Khalti...");
+
 		const lookup = await require("../services/khaltiService").lookupPayment(
 			pidx
 		);
 
-		console.log("Khalti payment lookup result:", {
-			status: lookup?.status,
-			amount: lookup?.amount,
-			transaction_id: lookup?.transaction_id,
-			fee_amount: lookup?.fee_amount,
-			refunded: lookup?.refunded,
-			created_at: lookup?.created_at,
-		});
+
 
 		if (lookup.status === "Completed") {
 			// 1. Mark the booking as paid
-			console.log("Updating booking with payment details...");
+
 			booking.isPaid = true;
 			booking.paymentStatus = "paid";
 			booking.status = "confirmed";
@@ -1407,13 +1386,7 @@ exports.verifyKhaltiPayment = async (req, res) => {
 			const saveOptions = useTransaction ? { session } : {};
 			const updatedBooking = await booking.save(saveOptions);
 
-			console.log("Booking updated successfully:", {
-				id: updatedBooking._id,
-				isPaid: updatedBooking.isPaid,
-				paymentStatus: updatedBooking.paymentStatus,
-				status: updatedBooking.status,
-				updatedAt: updatedBooking.updatedAt,
-			});
+
 
 			// 2. Cancel all competing bookings
 			if (booking.competingBookings && booking.competingBookings.length > 0) {
@@ -1587,7 +1560,7 @@ exports.verifyKhaltiPayment = async (req, res) => {
 		});
 
 		if (useTransaction && session && session.inTransaction()) {
-			console.log("Aborting transaction due to error...");
+
 			await session.abortTransaction();
 			session.endSession();
 		} else if (session) {
@@ -1817,14 +1790,7 @@ exports.getBookingsForFutsal = async (req, res) => {
 			status: { $nin: ["cancelled"] },
 		};
 		
-		// Debug logging
-		console.log('getBookingsForFutsal debug:', {
-			futsalId,
-			date,
-			startDate: startDate.toISOString(),
-			endDate: endDate.toISOString(),
-			query
-		});
+
 		
 		const bookings = await Booking.find(query)
 			.populate("user", "fullName")
@@ -1833,17 +1799,7 @@ exports.getBookingsForFutsal = async (req, res) => {
 			.limit(parseInt(limit));
 		const total = await Booking.countDocuments(query);
 		
-		// Debug logging
-		console.log('getBookingsForFutsal result:', {
-			bookingsFound: bookings.length,
-			total,
-			firstBooking: bookings[0] ? {
-				_id: bookings[0]._id,
-				date: bookings[0].date,
-				startTime: bookings[0].startTime,
-				status: bookings[0].status
-			} : null
-		});
+
 		
 		res.json({
 			bookings,
