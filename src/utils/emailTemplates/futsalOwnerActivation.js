@@ -1,4 +1,3 @@
-// Futsal Owner Activation Email Template
 module.exports = function futsalOwnerActivationTemplate({ fullName }) {
 	return `
     <p>Dear ${fullName},</p>
