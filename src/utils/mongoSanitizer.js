@@ -69,24 +69,14 @@ function createMongoSanitizer(options = {}) {
 				req.body = sanitizeObject(req.body, "body");
 			}
 
-			// Sanitize req.query (only mutate existing keys)
+			// Sanitize req.query
 			if (sanitizeQuery && req.query) {
-				const sanitizedQuery = sanitizeObject(req.query, "query");
-				Object.keys(req.query).forEach((key) => {
-					if (key in sanitizedQuery) {
-						req.query[key] = sanitizedQuery[key];
-					}
-				});
+				req.query = sanitizeObject(req.query, "query");
 			}
 
-			// Sanitize req.params (only mutate existing keys)
+			// Sanitize req.params
 			if (sanitizeParams && req.params) {
-				const sanitizedParams = sanitizeObject(req.params, "params");
-				Object.keys(req.params).forEach((key) => {
-					if (key in sanitizedParams) {
-						req.params[key] = sanitizedParams[key];
-					}
-				});
+				req.params = sanitizeObject(req.params, "params");
 			}
 
 			next();
