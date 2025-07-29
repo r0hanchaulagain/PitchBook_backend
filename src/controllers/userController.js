@@ -6,6 +6,7 @@ const crypto = require("node:crypto");
 const { sendMail } = require("../utils/email");
 const Session = require("../models/Session");
 const futsalOwnerActivationTemplate = require("../utils/emailTemplates/futsalOwnerActivation");
+const emailVerificationTemplate = require("../utils/emailTemplates/emailVerification");
 const { uploadImage, deleteImage } = require("../utils/cloudinary");
 const { decryptUserData, encrypt } = require("../utils/encryption");
 const MFAService = require("../services/mfaService");
@@ -21,6 +22,11 @@ const generateRefreshToken = (user) => {
 	return jwt.sign({ id: user._id, role: user.role }, config.jwtSecret, {
 		expiresIn: "30d",
 	});
+};
+
+// Helper to generate email verification token
+const generateEmailVerificationToken = () => {
+	return crypto.randomBytes(32).toString('hex');
 };
 
 exports.register = async (req, res) => {
@@ -54,8 +60,24 @@ exports.register = async (req, res) => {
 			res.locals.errorMessage = "User already exists";
 			return res.status(400).json({ error: "User already exists" });
 		}
+
+		// Generate email verification token
+		const emailVerificationToken = generateEmailVerificationToken();
+		const emailVerificationExpires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+
 		// Build user object based on role
-		let userObj = { email, password, role, phone, fullName };
+		let userObj = { 
+			email, 
+			password, 
+			role, 
+			phone, 
+			fullName,
+			authProvider: "local", // Explicitly set as local user
+			isEmailVerified: false,
+			emailVerificationToken,
+			emailVerificationExpires
+		};
+		
 		if (role === "user") {
 			userObj.favoritesFutsal = [];
 			userObj.bookingHistory = [];
@@ -65,15 +87,24 @@ exports.register = async (req, res) => {
 		}
 		
 		const user = await User.create(userObj);
-		const token = generateToken(user);
 
-		// Send futsal owner activation email if role is futsalOwner #TODO: add to resend the email if owner is not active and tried to create a futsal
+		// Send email verification
+		const verificationLink = `${config.frontendUrl}/verify-email?token=${emailVerificationToken}&email=${encodeURIComponent(email)}`;
+		const html = emailVerificationTemplate({ fullName, verificationLink });
+		
+		await sendMail({
+			to: email,
+			subject: "Verify Your Email - Futsal Booking System",
+			html,
+		});
+
+		// Send futsal owner activation email if role is futsalOwner
 		if (role === "futsalOwner") {
-			const html = futsalOwnerActivationTemplate({ fullName });
+			const activationHtml = futsalOwnerActivationTemplate({ fullName });
 			await sendMail({
 				to: email,
 				subject: "Futsal Owner Account Created - Activation Required",
-				html,
+				html: activationHtml,
 			});
 		}
 
@@ -147,6 +178,49 @@ exports.verifyEmail = async (req, res) => {
 	}
 };
 
+// Resend email verification
+exports.resendEmailVerification = async (req, res) => {
+	try {
+		const { email } = req.body;
+		
+		if (!email) {
+			return res.status(400).json({ error: "Email is required" });
+		}
+
+		const user = await User.findByEmail(email);
+		if (!user) {
+			return res.status(404).json({ error: "User not found" });
+		}
+
+		if (user.isEmailVerified) {
+			return res.status(400).json({ error: "Email is already verified" });
+		}
+
+		// Generate new verification token
+		const emailVerificationToken = generateEmailVerificationToken();
+		const emailVerificationExpires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+
+		user.emailVerificationToken = emailVerificationToken;
+		user.emailVerificationExpires = emailVerificationExpires;
+		await user.save();
+
+		// Send new verification email
+		const verificationLink = `${config.frontendUrl}/verify-email?token=${emailVerificationToken}&email=${encodeURIComponent(email)}`;
+		const html = emailVerificationTemplate({ fullName: user.fullName, verificationLink });
+		
+		await sendMail({
+			to: email,
+			subject: "Verify Your Email - Futsal Booking System",
+			html,
+		});
+
+		res.json({ message: "Verification email sent successfully. Please check your inbox." });
+	} catch (err) {
+		res.locals.errorMessage = err.message;
+		res.status(500).json({ error: err.message || "Server error" });
+	}
+};
+
 // -- LOGIN: Set tokens as HttpOnly cookies --
 exports.login = async (req, res) => {
 	const errors = validationResult(req);
@@ -156,7 +230,8 @@ exports.login = async (req, res) => {
 	}
 	try {
 		const { email, password } = req.body;
-		const user = await User.findOne({ email });
+		// Use encryption-aware method to find user
+		const user = await User.findByEmail(email);
 		if (!user) {
 			res.locals.errorMessage = "No user registered";
 			return res.status(400).json({ error: "No user registered" });
@@ -209,6 +284,7 @@ exports.login = async (req, res) => {
 				.status(400)
 				.json({ error: "Invalid credentials.Please try again." });
 		}
+
 		// Reset login attempts and lockUntil on successful login
 		user.loginAttempts = 0;
 		user.lockUntil = undefined;

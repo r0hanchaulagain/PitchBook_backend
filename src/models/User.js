@@ -1,11 +1,20 @@
 const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
+const crypto = require("crypto");
+const { encrypt, decrypt, isEncrypted, encryptUserData, decryptUserData } = require("../utils/encryption");
 
 const UserSchema = new mongoose.Schema({
 	fullName: { type: String, required: true },
 	email: { type: String, required: true, unique: true },
-	phone: { type: String, unique: true },
-	password: { type: String, required: true },
+	emailHash: { type: String, sparse: true }, // Hash for searching
+	phone: { type: String, unique: true, sparse: true },
+	phoneHash: { type: String, sparse: true }, // Hash for searching
+	password: { type: String, required: false }, // Made optional for OAuth users
+	passwordHistory: [{ 
+		password: String, 
+		createdAt: { type: Date, default: Date.now } 
+	}], // Store last 5 passwords
+	passwordExpiresAt: { type: Date }, // Password expiry date (90 days from creation/reset)
 	role: {
 		type: String,
 		enum: ["admin", "user", "futsalOwner"],
