@@ -36,13 +36,17 @@ const {
 const { authenticate, authorize } = require("../middlewares/auth");
 const { verifyAltcha } = require("../middlewares/security/altcha");
 const { passport } = require("../config/google_oauth");
-const multer = require("multer");
-const upload = multer({ dest: "uploads/" });
+const { upload, handleMulterError } = require("../utils/multerConfig");
 const router = express.Router();
 
 // Registration with ALTCHA CAPTCHA protection
 router.post("/register", registerValidator, verifyAltcha, register);
 router.post("/login", loginValidator, login);
+
+// Email verification routes
+router.get("/verify-email", verifyEmail);
+router.post("/resend-verification", resendEmailVerification);
+
 router.post("/forgot-password", forgotPasswordValidator, forgotPassword);
 router.post("/reset-password", resetPasswordValidator, resetPassword);
 router.get("/logout", authenticate, logout);
@@ -108,7 +112,6 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
 }
 
 
-
 router.post(
 	"/upload-profile-image",
 	authenticate,
@@ -121,6 +124,7 @@ router.post(
 	"/update-profile-image",
 	authenticate,
 	upload.single("image"),
+	handleMulterError,
 	registerValidator,
 	updateProfileImage
 );

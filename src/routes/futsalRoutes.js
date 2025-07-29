@@ -9,8 +9,7 @@ const {
 	registerFutsalOwnerValidator,
 } = require("../validators/futsalOwnerValidators");
 
-const multer = require("multer");
-const upload = multer({ dest: "uploads/" });
+const { upload, handleMulterError } = require("../utils/multerConfig");
 
 const router = express.Router();
 
@@ -38,10 +37,13 @@ router.post(
 	registerFutsalOwnerValidator,
 	futsalController.registerFutsal
 );
+
+
 router.post(
 	"/upload-image",
 	authenticate,
 	upload.single("image"),
+	handleMulterError,
 	createFutsalValidator,
 	futsalController.uploadFutsalImage
 );
@@ -50,6 +52,7 @@ router.put(
 	"/:id/update-image",
 	authenticate,
 	upload.single("image"),
+	handleMulterError,
 	updateFutsalValidator,
 	futsalController.updateFutsalImage
 );
