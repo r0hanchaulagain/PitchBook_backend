@@ -1,6 +1,8 @@
+const { frontendUrl } = require("../../config/env_config");
+
 const corsConfig = () => ({
 	origin: (origin, callback) => {
-		const allowedOrigins = [process.env.FRONTEND_URL];
+		const allowedOrigins = [frontendUrl];
 		if (!origin || allowedOrigins.includes(origin)) {
 			callback(null, true);
 		} else {

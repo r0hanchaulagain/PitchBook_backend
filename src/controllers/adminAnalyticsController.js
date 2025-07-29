@@ -4,7 +4,6 @@ const Booking = require("../models/Booking");
 const Transaction = require("../models/Transaction");
 const mongoose = require("mongoose");
 
-// 1. Platform Overview
 exports.getOverview = async (req, res) => {
 	try {
 		const [
@@ -42,7 +41,6 @@ exports.getOverview = async (req, res) => {
 	}
 };
 
-// 2. Time Series Analytics
 exports.getRegistrations = async (req, res) => {
 	try {
 		const { period = "monthly" } = req.query;
@@ -119,7 +117,6 @@ exports.getRevenue = async (req, res) => {
 	}
 };
 
-// 3. Top/Bottom Performers
 exports.getTopFutsals = async (req, res) => {
 	try {
 		const { limit = 10, period = "all" } = req.query;
@@ -225,7 +222,6 @@ exports.getLowPerformingFutsals = async (req, res) => {
 	}
 };
 
-// 4. Geographical Analytics
 exports.getFutsalsByLocation = async (req, res) => {
 	try {
 		const data = await Futsal.aggregate([
@@ -270,7 +266,6 @@ exports.getBookingsByLocation = async (req, res) => {
 	}
 };
 
-// 5. Other Stats
 exports.getActiveVsInactiveFutsals = async (req, res) => {
 	try {
 		const data = await Futsal.aggregate([
@@ -301,7 +296,6 @@ exports.getCancellations = async (req, res) => {
 
 exports.getHolidayImpact = async (req, res) => {
 	try {
-		// Bookings/revenue on holidays vs regular days
 		const holidays = await require("../models/Holiday").find();
 		const holidayDates = holidays.map((h) => h.date.toISOString().slice(0, 10));
 		const data = await Booking.aggregate([

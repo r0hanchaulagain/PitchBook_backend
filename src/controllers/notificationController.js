@@ -6,7 +6,6 @@ class NotificationController {
 		this.notificationService = new NotificationService(io, connectedUsers);
 	}
 
-	// Get notifications for the logged-in user
 	getNotifications = async (req, res) => {
 		try {
 			const { limit = 20, skip = 0 } = req.query;
@@ -20,7 +19,6 @@ class NotificationController {
 		}
 	};
 
-	// Mark notifications as read
 	markAsRead = async (req, res) => {
 		try {
 			const { notificationIds } = req.body;
@@ -41,7 +39,6 @@ class NotificationController {
 		}
 	};
 
-	// Create notification (for internal use)
 	createNotification = async ({ user, title, message, type, data }) => {
 		try {
 			return await this.notificationService.sendToUser(user, {
@@ -56,7 +53,6 @@ class NotificationController {
 		}
 	};
 
-	// Get unread notifications count
 	getUnreadCount = async (req, res) => {
 		try {
 			const count = await Notification.countDocuments({
@@ -77,7 +73,7 @@ module.exports = (io, connectedUsers) => {
 		markAsRead: controller.markAsRead.bind(controller),
 		createNotification: controller.createNotification.bind(controller),
 		getUnreadCount: controller.getUnreadCount.bind(controller),
-		// Export controller instance for internal use
+
 		_controller: controller,
 	};
 };

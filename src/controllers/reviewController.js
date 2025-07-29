@@ -1,14 +1,13 @@
 const Review = require("../models/Review");
 const Booking = require("../models/Booking");
 
-// POST /api/reviews - Create review for a futsal (user must have a booking)
 exports.createReview = async (req, res) => {
 	try {
 		const { futsalId, rating, feedback } = req.body;
 		if (!futsalId || !rating || !feedback) {
 			return res.status(400).json({ message: "Missing required fields" });
 		}
-		// Only allow if user has a completed or confirmed booking for this futsal
+
 		const booking = await Booking.findOne({
 			futsal: futsalId,
 			user: req.user._id,
@@ -19,7 +18,7 @@ exports.createReview = async (req, res) => {
 				.status(403)
 				.json({ message: "You can only review futsals you have booked." });
 		}
-		// Only one review per user per futsal
+
 		const existing = await Review.findOne({
 			futsal: futsalId,
 			user: req.user._id,
@@ -41,7 +40,6 @@ exports.createReview = async (req, res) => {
 	}
 };
 
-// GET /api/reviews/:futsalId - Get all reviews for a futsal (with pagination and filtering)
 exports.getReviewsForFutsal = async (req, res) => {
 	try {
 		const { futsalId } = req.params;
@@ -61,7 +59,6 @@ exports.getReviewsForFutsal = async (req, res) => {
 	}
 };
 
-// DELETE /api/reviews/:id - Delete own review
 exports.deleteReview = async (req, res) => {
 	try {
 		const review = await Review.findById(req.params.id);

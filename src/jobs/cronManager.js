@@ -6,7 +6,6 @@ let cleanupTask;
 
 const startCronJobs = () => {
 	try {
-		// Schedule the cleanup job to run daily at midnight in production
 		cleanupTask = cron.schedule(
 			"0 0 * * *",
 			async () => {
@@ -39,7 +38,6 @@ const stopCronJobs = () => {
 	}
 };
 
-// Handle process termination
 process.on("SIGINT", () => {
 	stopCronJobs();
 	process.exit(0);

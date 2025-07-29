@@ -1,4 +1,4 @@
-const { verifySolution } = require('altcha-lib');
+const { verifySolution } = require("altcha-lib");
 const altchaConfig = require("../../config/altcha");
 
 const verifyAltcha = async (req, res, next) => {
@@ -9,7 +9,6 @@ const verifyAltcha = async (req, res, next) => {
 			throw new Error("ALTCHA payload is required");
 		}
 
-		// Verify the solution using the secret HMAC key
 		const verified = await verifySolution(String(altcha), altchaConfig.hmacKey);
 
 		if (!verified) {

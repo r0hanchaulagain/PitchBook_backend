@@ -1,10 +1,10 @@
-// api_config.js
 const express = require("express");
 const cookieParser = require("cookie-parser");
 const session = require("express-session");
 const morgan = require("morgan");
 
 const createMongoSanitizer = require("../utils/mongoSanitizer");
+const createQuerySanitizer = require("../middlewares/security/querySanitizer");
 const logger = require("../utils/logger");
 
 const { setupSimpleCSRF } = require("../middlewares/security/csrf");
@@ -12,63 +12,68 @@ const { setupSecurityHeaders } = require("../middlewares/security/headers");
 const { rateLimiterConfig } = require("../middlewares/security/rate_limit");
 const { verifyAltcha } = require("../middlewares/security/altcha");
 const { passport } = require("./google_oauth");
+const { session_secret, cookie_secret, nodeEnv } = require("./env_config");
 
 function setupMiddlewares(app) {
 	app.set("trust proxy", 1);
 
-	// Basic express middlewares
 	app.use(express.json({ limit: "10mb" }));
 	app.use(express.urlencoded({ extended: true, limit: "10mb" }));
-	app.use(cookieParser(process.env.COOKIE_SECRET));
+	app.use(cookieParser(cookie_secret));
 
-	// Session middleware - Required for CSRF protection and Passport
-	app.use(session({
-		secret: process.env.SESSION_SECRET || process.env.COOKIE_SECRET,
-		name: 'psifi.session',
-		resave: false,
-		saveUninitialized: false,
-		rolling: true,
-		cookie: {
-			secure: process.env.NODE_ENV === 'production',
-			httpOnly: true,
-			maxAge: 24 * 60 * 60 * 1000, // 24 hours
-			sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax',
-			domain: process.env.NODE_ENV === 'production' ? process.env.COOKIE_DOMAIN : undefined
-		},
-	}));
+	app.use(
+		session({
+			secret: session_secret || cookie_secret,
+			name: "psifi.session",
+			resave: false,
+			saveUninitialized: false,
+			rolling: true,
+			cookie: {
+				secure: nodeEnv === "production",
+				httpOnly: true,
+				maxAge: 24 * 60 * 60 * 1000,
+				sameSite: nodeEnv === "production" ? "strict" : "lax",
+				domain:
+					nodeEnv === "production" ? process.env.COOKIE_DOMAIN : undefined,
+			},
+		})
+	);
 
-	// Initialize Passport middleware
 	app.use(passport.initialize());
 	app.use(passport.session());
 
-	// Setup security headers
 	const { helmetConfig, customHeaders, corsConfig } = setupSecurityHeaders();
 	app.use(helmetConfig);
 	app.use(customHeaders);
 	app.use(corsConfig);
 
-	// Setup CSRF protection using simple implementation
-	const { csrfMiddleware, csrfProtection, csrfErrorHandler } = setupSimpleCSRF();
+	const { csrfMiddleware, csrfProtection, csrfErrorHandler } =
+		setupSimpleCSRF();
 	app.use(csrfMiddleware);
 	app.use(csrfProtection);
 
-	// Setup request sanitization
 	app.use(
 		createMongoSanitizer({
 			logSanitized: true,
 			logger: logger,
 			replaceWith: "_",
-			sanitizeQuery: true,
 			sanitizeBody: true,
 			sanitizeParams: true,
 		})
 	);
 
-	// Setup rate limiting
+	app.use(
+		createQuerySanitizer({
+			logSanitized: true,
+			logger: logger,
+			replaceWith: "_",
+			strictMode: true,
+		})
+	);
+
 	const { generalLimiter, burstLimiter } = rateLimiterConfig();
 	app.use(burstLimiter);
 	app.use((req, res, next) => {
-		// Skip rate limiting for specific endpoints
 		const skipPaths = [
 			"/api/v1/users/me",
 			"/health",
@@ -82,14 +87,13 @@ function setupMiddlewares(app) {
 		return generalLimiter(req, res, next);
 	});
 
-	// Special rate limiter for CSRF token endpoint
 	const { rateLimit } = require("express-rate-limit");
 	const csrfTokenLimiter = rateLimit({
-		windowMs: 15 * 60 * 1000, // 15 minutes
-		max: 50, // limit each IP to 50 requests per windowMs
+		windowMs: 15 * 60 * 1000,
+		max: 50,
 		message: {
 			error: "Too many CSRF token requests",
-			message: "Please try again later"
+			message: "Please try again later",
 		},
 		standardHeaders: true,
 		legacyHeaders: false,
@@ -97,7 +101,6 @@ function setupMiddlewares(app) {
 
 	app.use("/api/v1/csrf-token", csrfTokenLimiter);
 
-	// Setup logging
 	morgan.token("error-message", (req, res) => res.locals.errorMessage || "-");
 	morgan.token("session-id", (req, res) => req.session?.id || "-");
 	morgan.token("user-id", (req, res) => req.user?.id || "-");
@@ -113,8 +116,7 @@ function setupMiddlewares(app) {
 			}
 		)
 	);
-	
-	// Add CSRF error handler
+
 	app.use(csrfErrorHandler);
 }
 
@@ -123,35 +125,33 @@ function setupRoutes(app) {
 		res.status(200).json({
 			status: "ok",
 			timestamp: new Date().toISOString(),
-			environment: process.env.NODE_ENV,
+			environment: nodeEnv,
 		});
 	});
 
-	// CSRF token endpoint
 	const { generateToken } = setupSimpleCSRF();
 	app.get("/api/v1/csrf-token", (req, res) => {
 		try {
 			const csrfToken = generateToken(req);
 			logger.debug("CSRF token generated", {
 				ip: req.ip,
-				userAgent: req.headers['user-agent'],
-				sessionId: req.session?.id || 'no-session'
+				userAgent: req.headers["user-agent"],
+				sessionId: req.session?.id || "no-session",
 			});
 
 			res.json({
 				csrfToken,
-				expires: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+				expires: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
 			});
 		} catch (error) {
 			logger.error("Failed to generate CSRF token", error);
 			res.status(500).json({
 				error: "Failed to generate CSRF token",
-				message: "Please try again"
+				message: "Please try again",
 			});
 		}
 	});
 
-	// API routes
 	app.use("/api/v1/users", require("../routes/userRoutes"));
 	app.use("/api/v1/futsals", require("../routes/futsalRoutes"));
 	app.use("/api/v1/bookings", require("../routes/bookingRoutes"));
@@ -161,7 +161,6 @@ function setupRoutes(app) {
 	app.use("/api/v1/altcha", require("../routes/altchaRoutes"));
 	app.use("/api/v1/contact", require("../routes/contactRoutes"));
 
-	// 404 handler
 	app.use((req, res) => {
 		logger.warn(`404 - Route not found: ${req.method} ${req.path}`, {
 			ip: req.ip,
@@ -175,9 +174,7 @@ function setupRoutes(app) {
 }
 
 function setupErrorHandling(app) {
-	// Global error handler
 	app.use((err, req, res, next) => {
-		// Log the error with context
 		logger.error("Unhandled error", {
 			error: err.message,
 			stack: err.stack,
@@ -189,18 +186,14 @@ function setupErrorHandling(app) {
 			userId: req.user?.id || "anonymous",
 		});
 
-		// Set error message for logging
 		res.locals.errorMessage = err.message;
 
-		// Don't expose internal errors in production
 		const message =
-			process.env.NODE_ENV === "production"
-				? "Internal Server Error"
-				: err.message;
+			nodeEnv === "production" ? "Internal Server Error" : err.message;
 
 		res.status(err.status || 500).json({
 			error: message,
-			...(process.env.NODE_ENV === "development" && { stack: err.stack }),
+			...(nodeEnv === "development" && { stack: err.stack }),
 		});
 	});
 }

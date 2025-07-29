@@ -3,11 +3,10 @@ const khaltiService = require("../services/khaltiService");
 const emailUtil = require("../utils/email");
 const { initiateKhaltiPayment } = require("../utils/payment");
 
-// Register futsal owner and initiate Khalti payment
 exports.registerOwner = async (req, res) => {
 	try {
 		const { fullName, email, phone, password } = req.body;
-		// Create user with isActiveOwner: false
+
 		const user = new User({
 			fullName,
 			email,
@@ -18,7 +17,6 @@ exports.registerOwner = async (req, res) => {
 		});
 		await user.save();
 
-		// Initiate Khalti payment
 		const return_url = req.body.return_url || req.query.return_url;
 		const paymentInit = await initiateKhaltiPayment({
 			name: fullName,
@@ -30,7 +28,6 @@ exports.registerOwner = async (req, res) => {
 			return_url,
 		});
 
-		// Save pidx to user
 		user.khaltiPidx = paymentInit.pidx;
 		await user.save();
 
@@ -44,16 +41,13 @@ exports.registerOwner = async (req, res) => {
 	}
 };
 
-// Verify payment using pidx (from return URL)
 exports.verifyPayment = async (req, res) => {
 	try {
 		const { pidx } = req.query;
 		if (!pidx) return res.status(400).json({ error: "Missing pidx" });
 
-		// Lookup payment status
 		const lookup = await khaltiService.lookupPayment(pidx);
 		if (lookup.status === "Completed") {
-			// Activate owner
 			const user = await User.findOne({ khaltiPidx: pidx });
 			if (user) {
 				user.isActiveOwner = true;
@@ -72,7 +66,6 @@ exports.verifyPayment = async (req, res) => {
 	}
 };
 
-// Resend payment URL if isActiveOwner is false
 exports.resendPaymentUrl = async (req, res) => {
 	try {
 		const { email } = req.body;
@@ -87,7 +80,7 @@ exports.resendPaymentUrl = async (req, res) => {
 				.status(400)
 				.json({ error: "No payment initiated for this user" });
 		}
-		// Reconstruct payment_url
+
 		const payment_url = `https://test-pay.khalti.com/?pidx=${user.khaltiPidx}`;
 		return res.json({ payment_url });
 	} catch (err) {

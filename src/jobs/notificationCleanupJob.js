@@ -1,8 +1,6 @@
-// Notification Cleanup Job
 const Notification = require("../models/Notification");
 const cron = require("node-cron");
 
-// Delete notifications marked as read (run every hour)
 cron.schedule("0 * * * *", async () => {
 	try {
 		const result = await Notification.deleteMany({ isRead: true });
@@ -19,7 +17,6 @@ cron.schedule("0 * * * *", async () => {
 	}
 });
 
-// Delete notifications older than 7 days that are not read (run every hour)
 cron.schedule("10 * * * *", async () => {
 	try {
 		const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);

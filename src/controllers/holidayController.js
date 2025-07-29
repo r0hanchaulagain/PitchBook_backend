@@ -1,7 +1,6 @@
 const Holiday = require("../models/Holiday");
 const Futsal = require("../models/Futsal");
 
-// Create a holiday
 exports.createHoliday = async (req, res) => {
 	try {
 		const { name, date, isRecurring, recurringDetails } = req.body;
@@ -17,7 +16,6 @@ exports.createHoliday = async (req, res) => {
 	}
 };
 
-// Get all holidays
 exports.getHolidays = async (req, res) => {
 	try {
 		const holidays = await Holiday.find();
@@ -27,7 +25,6 @@ exports.getHolidays = async (req, res) => {
 	}
 };
 
-// Update a holiday
 exports.updateHoliday = async (req, res) => {
 	try {
 		const { id } = req.params;
@@ -41,7 +38,6 @@ exports.updateHoliday = async (req, res) => {
 	}
 };
 
-// Delete a holiday
 exports.deleteHoliday = async (req, res) => {
 	try {
 		const { id } = req.params;
@@ -53,12 +49,10 @@ exports.deleteHoliday = async (req, res) => {
 	}
 };
 
-// Futsal closure management
-// POST /api/futsals/:id/close - Close futsal for specific dates/reasons
 exports.closeFutsal = async (req, res) => {
 	try {
 		const { id } = req.params;
-		const { dates, reason } = req.body; // dates: array of Date
+		const { dates, reason } = req.body;
 		const futsal = await Futsal.findById(id);
 		if (!futsal) return res.status(404).json({ message: "Futsal not found" });
 		if (!futsal.closures) futsal.closures = [];
@@ -75,7 +69,6 @@ exports.closeFutsal = async (req, res) => {
 	}
 };
 
-// GET /api/futsals/:id/closures - Get futsal closure dates
 exports.getFutsalClosures = async (req, res) => {
 	try {
 		const { id } = req.params;

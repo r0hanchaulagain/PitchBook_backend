@@ -1,14 +1,11 @@
-// Booking Cleanup Job: Cancels abandoned/unpaid bookings
 const Booking = require("../models/Booking");
 const cron = require("node-cron");
 
-// Run every 15 minutes
 cron.schedule("*/15 * * * *", async () => {
 	const FIFTEEN_MINUTES = 15 * 60 * 1000;
 	const cutoff = new Date(Date.now() - FIFTEEN_MINUTES);
 
 	try {
-		// Find bookings that are still pending and older than 15 minutes
 		const staleBookings = await Booking.find({
 			status: "pending",
 			createdAt: { $lt: cutoff },

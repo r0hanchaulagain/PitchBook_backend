@@ -1,10 +1,11 @@
 const mongoose = require("mongoose");
 const logger = require("../utils/logger");
+const { nodeEnv } = require("./env_config");
 
 let isConnected = false;
 let connectionRetries = 0;
 const MAX_RETRIES = 5;
-const RETRY_DELAY = 5000; // 5 seconds
+const RETRY_DELAY = 5000;
 
 async function connectDB(uri) {
 	if (isConnected) {
@@ -13,24 +14,20 @@ async function connectDB(uri) {
 	}
 
 	try {
-		// Configure mongoose to use native promises
 		mongoose.Promise = global.Promise;
 
-		// Set connection options
 		const options = {
-			serverSelectionTimeoutMS: 10000, // 10 seconds
-			socketTimeoutMS: 45000, // Close sockets after 45 seconds of inactivity
+			serverSelectionTimeoutMS: 10000,
+			socketTimeoutMS: 45000,
 			maxPoolSize: 10,
 			retryWrites: true,
 			w: "majority",
 		};
 
-		// Connect to MongoDB
 		await mongoose.connect(uri, options);
 
 		const db = mongoose.connection;
 
-		// Event handlers
 		db.on("connected", () => {
 			isConnected = true;
 			connectionRetries = 0;
@@ -41,7 +38,6 @@ async function connectDB(uri) {
 			logger.error(`MongoDB connection error: ${err.message}`);
 			isConnected = false;
 
-			// Attempt to reconnect
 			if (connectionRetries < MAX_RETRIES) {
 				connectionRetries++;
 				logger.info(
@@ -60,14 +56,12 @@ async function connectDB(uri) {
 			logger.warn("MongoDB disconnected");
 			isConnected = false;
 
-			// Try to reconnect if this wasn't a manual disconnect
-			if (process.env.NODE_ENV !== "test") {
+			if (nodeEnv !== "test") {
 				logger.info("Attempting to reconnect to MongoDB...");
 				setTimeout(() => connectDB(uri), RETRY_DELAY);
 			}
 		});
 
-		// Handle process termination
 		process.on("SIGINT", async () => {
 			try {
 				await db.close();
@@ -83,7 +77,6 @@ async function connectDB(uri) {
 	} catch (error) {
 		logger.error(`Failed to connect to MongoDB: ${error.message}`);
 
-		// Retry connection
 		if (connectionRetries < MAX_RETRIES) {
 			connectionRetries++;
 			logger.info(

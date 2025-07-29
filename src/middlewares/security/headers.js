@@ -1,17 +1,17 @@
 const cors = require("cors");
 const helmet = require("helmet");
+const { frontendUrl, nodeEnv } = require("../../config/env_config");
 
 function corsConfig() {
 	return {
 		origin: (origin, callback) => {
-			const allowedOrigins = [process.env.FRONTEND_URL];
+			const allowedOrigins = [frontendUrl];
 			if (
 				!origin ||
 				allowedOrigins.some(
 					(allowedOrigin) =>
 						origin === allowedOrigin ||
-						(process.env.NODE_ENV === "development" &&
-							origin.includes("localhost"))
+						(nodeEnv === "development" && origin.includes("localhost"))
 				)
 			) {
 				callback(null, true);
@@ -52,7 +52,6 @@ function setupSecurityHeaders() {
 	});
 
 	const customHeaders = (req, res, next) => {
-		// Common security headers for all requests
 		res.setHeader("X-Frame-Options", "DENY");
 		res.setHeader("X-Content-Type-Options", "nosniff");
 		res.setHeader("X-XSS-Protection", "1; mode=block");
@@ -60,14 +59,12 @@ function setupSecurityHeaders() {
 		res.setHeader("X-Download-Options", "noopen");
 		res.setHeader("X-DNS-Prefetch-Control", "off");
 
-		// Cache control - different for GET vs other methods
 		if (req.method === "GET") {
 			res.setHeader("Cache-Control", "public, max-age=300");
 			res.removeHeader("Pragma");
 			res.removeHeader("Expires");
 			res.removeHeader("Surrogate-Control");
 		} else {
-			// No caching for non-GET requests
 			res.setHeader(
 				"Cache-Control",
 				"no-store, no-cache, must-revalidate, proxy-revalidate"
@@ -77,7 +74,6 @@ function setupSecurityHeaders() {
 			res.setHeader("Surrogate-Control", "no-store");
 		}
 
-		// Content Security Policy
 		res.setHeader(
 			"Content-Security-Policy",
 			"default-src 'self'; " +

@@ -10,24 +10,12 @@ const emailVerificationTemplate = require("../utils/emailTemplates/emailVerifica
 const { uploadImage, deleteImage } = require("../utils/cloudinary");
 const { decryptUserData, encrypt } = require("../utils/encryption");
 const MFAService = require("../services/mfaService");
-
-const generateToken = (user) => {
-	return jwt.sign({ id: user._id, role: user.role }, config.jwtSecret, {
-		expiresIn: "7d",
-	});
-};
-
-// Helper to generate refresh token
-const generateRefreshToken = (user) => {
-	return jwt.sign({ id: user._id, role: user.role }, config.jwtSecret, {
-		expiresIn: "30d",
-	});
-};
-
-// Helper to generate email verification token
-const generateEmailVerificationToken = () => {
-	return crypto.randomBytes(32).toString('hex');
-};
+const {
+	generateToken,
+	generateRefreshToken,
+	generateEmailVerificationToken,
+	generateMFAToken,
+} = require("../utils/tokens");
 
 exports.register = async (req, res) => {
 	const errors = validationResult(req);
@@ -37,47 +25,47 @@ exports.register = async (req, res) => {
 	}
 	try {
 		const { email, password, role, phone, fullName } = req.body;
-		
-		// Check if user exists using encryption-aware method
+
 		const userExists = await User.findByEmail(email);
-		
-		// Also check by phone if provided
+
 		let phoneUser = null;
 		if (phone) {
 			phoneUser = await User.findByPhone(phone);
 		}
 
 		if (userExists || phoneUser) {
-			// Check if user exists with Google OAuth
-			if (userExists && (userExists.googleEmail === email || userExists.googleId)) {
-				res.locals.errorMessage = "An account with this email already exists via Google. Please use 'Continue with Google' to sign in.";
-				return res.status(400).json({ 
-					error: "An account with this email already exists via Google. Please use 'Continue with Google' to sign in.",
-					authProvider: "google"
+			if (
+				userExists &&
+				(userExists.googleEmail === email || userExists.googleId)
+			) {
+				res.locals.errorMessage =
+					"An account with this email already exists via Google. Please use 'Continue with Google' to sign in.";
+				return res.status(400).json({
+					error:
+						"An account with this email already exists via Google. Please use 'Continue with Google' to sign in.",
+					authProvider: "google",
 				});
 			}
-			
+
 			res.locals.errorMessage = "User already exists";
 			return res.status(400).json({ error: "User already exists" });
 		}
 
-		// Generate email verification token
 		const emailVerificationToken = generateEmailVerificationToken();
-		const emailVerificationExpires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+		const emailVerificationExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
-		// Build user object based on role
-		let userObj = { 
-			email, 
-			password, 
-			role, 
-			phone, 
+		let userObj = {
+			email,
+			password,
+			role,
+			phone,
 			fullName,
-			authProvider: "local", // Explicitly set as local user
+			authProvider: "local",
 			isEmailVerified: false,
 			emailVerificationToken,
-			emailVerificationExpires
+			emailVerificationExpires,
 		};
-		
+
 		if (role === "user") {
 			userObj.favoritesFutsal = [];
 			userObj.bookingHistory = [];
@@ -85,20 +73,18 @@ exports.register = async (req, res) => {
 		if (role === "futsalOwner") {
 			userObj.isActiveOwner = false;
 		}
-		
+
 		const user = await User.create(userObj);
 
-		// Send email verification
 		const verificationLink = `${config.frontendUrl}/verify-email?token=${emailVerificationToken}&email=${encodeURIComponent(email)}`;
 		const html = emailVerificationTemplate({ fullName, verificationLink });
-		
+
 		await sendMail({
 			to: email,
 			subject: "Verify Your Email - Futsal Booking System",
 			html,
 		});
 
-		// Send futsal owner activation email if role is futsalOwner
 		if (role === "futsalOwner") {
 			const activationHtml = futsalOwnerActivationTemplate({ fullName });
 			await sendMail({
@@ -108,18 +94,21 @@ exports.register = async (req, res) => {
 			});
 		}
 
+		const decryptedUser = decryptUserData(user.toObject());
+
 		res.status(201).json({
-			message: "Registration successful! Please check your email to verify your account.",
+			message:
+				"Registration successful! Please check your email to verify your account.",
 			user: {
 				id: user._id,
-				email: user.email,
+				email: decryptedUser.email,
 				role: user.role,
-				phone: user.phone,
-				fullName: user.fullName,
+				phone: decryptedUser.phone,
+				fullName: decryptedUser.fullName,
 				profileImage: user.profileImage,
 				authProvider: user.authProvider,
-				isEmailVerified: user.isEmailVerified
-			}
+				isEmailVerified: user.isEmailVerified,
+			},
 		});
 	} catch (err) {
 		res.locals.errorMessage = err.message;
@@ -127,11 +116,10 @@ exports.register = async (req, res) => {
 	}
 };
 
-// Email verification endpoint
 exports.verifyEmail = async (req, res) => {
 	try {
 		const { token, email } = req.query;
-		
+
 		if (!token || !email) {
 			return res.status(400).json({ error: "Token and email are required" });
 		}
@@ -153,24 +141,26 @@ exports.verifyEmail = async (req, res) => {
 			return res.status(400).json({ error: "Verification token has expired" });
 		}
 
-		// Verify the email
 		user.isEmailVerified = true;
 		user.emailVerificationToken = undefined;
 		user.emailVerificationExpires = undefined;
 		await user.save();
 
-		res.json({ 
-			message: "Email verified successfully! You can now log in to your account.",
+		const decryptedUser = decryptUserData(user.toObject());
+
+		res.json({
+			message:
+				"Email verified successfully! You can now log in to your account.",
 			user: {
 				id: user._id,
-				email: user.email,
+				email: decryptedUser.email,
 				role: user.role,
-				phone: user.phone,
-				fullName: user.fullName,
+				phone: decryptedUser.phone,
+				fullName: decryptedUser.fullName,
 				profileImage: user.profileImage,
 				authProvider: user.authProvider,
-				isEmailVerified: user.isEmailVerified
-			}
+				isEmailVerified: user.isEmailVerified,
+			},
 		});
 	} catch (err) {
 		res.locals.errorMessage = err.message;
@@ -178,11 +168,10 @@ exports.verifyEmail = async (req, res) => {
 	}
 };
 
-// Resend email verification
 exports.resendEmailVerification = async (req, res) => {
 	try {
 		const { email } = req.body;
-		
+
 		if (!email) {
 			return res.status(400).json({ error: "Email is required" });
 		}
@@ -196,32 +185,34 @@ exports.resendEmailVerification = async (req, res) => {
 			return res.status(400).json({ error: "Email is already verified" });
 		}
 
-		// Generate new verification token
 		const emailVerificationToken = generateEmailVerificationToken();
-		const emailVerificationExpires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+		const emailVerificationExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
 		user.emailVerificationToken = emailVerificationToken;
 		user.emailVerificationExpires = emailVerificationExpires;
 		await user.save();
 
-		// Send new verification email
 		const verificationLink = `${config.frontendUrl}/verify-email?token=${emailVerificationToken}&email=${encodeURIComponent(email)}`;
-		const html = emailVerificationTemplate({ fullName: user.fullName, verificationLink });
-		
+		const html = emailVerificationTemplate({
+			fullName: user.fullName,
+			verificationLink,
+		});
+
 		await sendMail({
 			to: email,
 			subject: "Verify Your Email - Futsal Booking System",
 			html,
 		});
 
-		res.json({ message: "Verification email sent successfully. Please check your inbox." });
+		res.json({
+			message: "Verification email sent successfully. Please check your inbox.",
+		});
 	} catch (err) {
 		res.locals.errorMessage = err.message;
 		res.status(500).json({ error: err.message || "Server error" });
 	}
 };
 
-// -- LOGIN: Set tokens as HttpOnly cookies --
 exports.login = async (req, res) => {
 	const errors = validationResult(req);
 	if (!errors.isEmpty()) {
@@ -230,40 +221,40 @@ exports.login = async (req, res) => {
 	}
 	try {
 		const { email, password } = req.body;
-		// Use encryption-aware method to find user
+
 		const user = await User.findByEmail(email);
 		if (!user) {
 			res.locals.errorMessage = "No user registered";
 			return res.status(400).json({ error: "No user registered" });
 		}
 
-		// Check if email is verified for local users
 		if (user.authProvider === "local" && !user.isEmailVerified) {
-			return res.status(400).json({ 
-				error: "Please verify your email address before logging in. Check your inbox for the verification link.",
-				needsVerification: true
+			return res.status(400).json({
+				error:
+					"Please verify your email address before logging in. Check your inbox for the verification link.",
+				needsVerification: true,
 			});
 		}
 
-		// Check if password is expired
 		if (user.isPasswordExpired()) {
 			return res.status(400).json({
-				error: "Your password has expired. Please reset your password to continue.",
+				error:
+					"Your password has expired. Please reset your password to continue.",
 				passwordExpired: true,
-				resetUrl: `${config.frontendUrl}/forgot-password`
+				resetUrl: `${config.frontendUrl}/forgot-password`,
 			});
 		}
 
-		// Check if user is OAuth-only (no password)
 		if (user.isOAuthUser() && !user.canUsePassword()) {
-			res.locals.errorMessage = "This account was created with Google. Please use 'Continue with Google' to sign in.";
-			return res.status(400).json({ 
-				error: "This account was created with Google. Please use 'Continue with Google' to sign in.",
-				authProvider: "google"
+			res.locals.errorMessage =
+				"This account was created with Google. Please use 'Continue with Google' to sign in.";
+			return res.status(400).json({
+				error:
+					"This account was created with Google. Please use 'Continue with Google' to sign in.",
+				authProvider: "google",
 			});
 		}
 
-		// Check if account is locked
 		if (user.lockUntil && user.lockUntil > Date.now()) {
 			return res.status(423).json({
 				error:
@@ -274,9 +265,9 @@ exports.login = async (req, res) => {
 		const isMatch = await user.comparePassword(password);
 		if (!isMatch) {
 			user.loginAttempts = (user.loginAttempts || 0) + 1;
-			// Lock account after 5 failed attempts for 1 hour
+
 			if (user.loginAttempts >= 5) {
-				user.lockUntil = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+				user.lockUntil = new Date(Date.now() + 60 * 60 * 1000);
 			}
 			await user.save();
 			res.locals.errorMessage = "Invalid credentials.Please try again.";
@@ -285,26 +276,26 @@ exports.login = async (req, res) => {
 				.json({ error: "Invalid credentials.Please try again." });
 		}
 
-		// Reset login attempts and lockUntil on successful login
 		user.loginAttempts = 0;
 		user.lockUntil = undefined;
 		user.lastLogin = new Date();
 
-		// Check if MFA is enabled
 		if (MFAService.isMFAConfigured(user)) {
-			// Don't complete login yet, require MFA verification
-			const mfaToken = generateToken({ id: user._id, requiresMFA: true }, '10m'); // 10 minute expiry
-			
+			const mfaToken = generateMFAToken(
+				{ id: user._id, requiresMFA: true },
+				"10m"
+			);
+
 			res.cookie("mfaToken", mfaToken, {
 				httpOnly: true,
 				secure: config.nodeEnv === "production",
 				sameSite: "strict",
-				maxAge: 1000 * 60 * 10, // 10 minutes
+				maxAge: 1000 * 60 * 10,
 			});
 
 			return res.json({
 				requiresMFA: true,
-				message: "Please enter your authenticator code to complete login"
+				message: "Please enter your authenticator code to complete login",
 			});
 		}
 
@@ -314,33 +305,30 @@ exports.login = async (req, res) => {
 		const refreshToken = generateRefreshToken(user);
 		await Session.create({ user: user._id, token: refreshToken });
 
-		// Set cookies
 		res.cookie("accessToken", token, {
 			httpOnly: true,
 			secure: config.nodeEnv === "production",
 			sameSite: "strict",
-			maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
+			maxAge: 1000 * 60 * 60 * 24 * 7,
 		});
 		res.cookie("refreshToken", refreshToken, {
 			httpOnly: true,
 			secure: config.nodeEnv === "production",
 			sameSite: "strict",
-			maxAge: 1000 * 60 * 60 * 24 * 30, // 30 days
+			maxAge: 1000 * 60 * 60 * 24 * 30,
 		});
 
-		// Explicitly decrypt user data for response using direct decryption
 		const userData = user.toObject();
-		
-		// Direct decryption function to bypass middleware issues
+
 		const { decrypt } = require("../utils/encryption");
 		const directDecrypt = (encryptedText) => {
 			try {
-				if (!encryptedText || !encryptedText.includes(':')) {
+				if (!encryptedText || !encryptedText.includes(":")) {
 					return encryptedText;
 				}
 				return decrypt(encryptedText);
 			} catch (error) {
-				console.error('Direct decryption failed:', error.message);
+				console.error("Direct decryption failed:", error.message);
 				return encryptedText;
 			}
 		};
@@ -349,7 +337,7 @@ exports.login = async (req, res) => {
 			...userData,
 			email: directDecrypt(userData.email),
 			phone: directDecrypt(userData.phone),
-			fullName: directDecrypt(userData.fullName)
+			fullName: directDecrypt(userData.fullName),
 		};
 
 		res.json({
@@ -361,7 +349,7 @@ exports.login = async (req, res) => {
 				fullName: decryptedUserData.fullName,
 				profileImage: user.profileImage,
 				authProvider: user.authProvider,
-				isEmailVerified: user.isEmailVerified
+				isEmailVerified: user.isEmailVerified,
 			},
 		});
 	} catch (err) {
@@ -371,26 +359,44 @@ exports.login = async (req, res) => {
 };
 
 exports.getProfile = async (req, res) => {
-	res.json({ user: req.user });
+	try {
+		const decryptedUser = decryptUserData(req.user.toObject());
+
+		const {
+			password,
+			passwordHistory,
+			emailVerificationToken,
+			emailVerificationExpires,
+			resetPasswordToken,
+			resetPasswordExpires,
+			totpSecret,
+			backupCodes,
+			...safeUserData
+		} = decryptedUser;
+
+		res.json({ user: safeUserData });
+	} catch (error) {
+		res.locals.errorMessage = error.message;
+		res.status(500).json({ error: "Failed to retrieve user profile" });
+	}
 };
 
 exports.forgotPassword = async (req, res) => {
 	const { email } = req.body;
 	try {
-		// Use encryption-aware method to find user
 		const user = await User.findByEmail(email);
 		if (!user) {
 			res.locals.errorMessage = "No user registered with this email";
-			return res.status(400).json({ error: "No user registered with this email" });
+			return res
+				.status(400)
+				.json({ error: "No user registered with this email" });
 		}
 
-		// Generate reset token
 		const resetToken = crypto.randomBytes(32).toString("hex");
 		user.resetPasswordToken = resetToken;
-		user.resetPasswordExpires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+		user.resetPasswordExpires = new Date(Date.now() + 60 * 60 * 1000);
 		await user.save();
 
-		// Send reset email
 		const resetUrl = `${config.frontendUrl}/reset-password?token=${resetToken}&email=${email}`;
 		const html = `
 			<p>You requested a password reset.</p>
@@ -424,13 +430,14 @@ exports.resetPassword = async (req, res) => {
 			return res.status(400).json({ error: "Invalid or expired token" });
 		}
 
-		// Check if password was used recently
 		const isReused = await user.isPasswordReused(password);
 		if (isReused) {
-			res.locals.errorMessage = "Cannot reuse recent passwords. Please choose a different password.";
-			return res.status(400).json({ 
-				error: "Cannot reuse recent passwords. Please choose a different password.",
-				passwordReused: true
+			res.locals.errorMessage =
+				"Cannot reuse recent passwords. Please choose a different password.";
+			return res.status(400).json({
+				error:
+					"Cannot reuse recent passwords. Please choose a different password.",
+				passwordReused: true,
 			});
 		}
 
@@ -438,7 +445,7 @@ exports.resetPassword = async (req, res) => {
 		user.resetPasswordToken = undefined;
 		user.resetPasswordExpires = undefined;
 		await user.save();
-		// Send confirmation email
+
 		const html = `<p>Your password has been reset successfully. If you did not perform this action, please contact support immediately.</p>`;
 		await sendMail({
 			to: user.email,
@@ -452,7 +459,6 @@ exports.resetPassword = async (req, res) => {
 	}
 };
 
-// -- REFRESH TOKEN: Use HttpOnly cookie --
 exports.refreshToken = async (req, res) => {
 	const refreshToken = req.cookies.refreshToken;
 	if (!refreshToken) {
@@ -488,23 +494,42 @@ exports.refreshToken = async (req, res) => {
 	}
 };
 
-// -- LOGOUT: Clear cookies --
 exports.logout = async (req, res) => {
 	try {
+		const user = req.user;
+		const isOAuthUser = user && user.authProvider === "google";
+
 		const refreshToken = req.cookies.refreshToken;
-		if (!refreshToken) {
-			return res.status(400).json({ error: "Refresh token required" });
+		if (refreshToken) {
+			await Session.deleteOne({ token: refreshToken });
 		}
-		await Session.deleteOne({ token: refreshToken });
+
 		res.clearCookie("accessToken");
 		res.clearCookie("refreshToken");
-		res.status(200).json({ message: "Logged out successfully" });
+		res.clearCookie("mfaToken");
+
+		if (isOAuthUser) {
+			res.clearCookie("psifi.session");
+		}
+
+		if (user) {
+			user.lastLogout = new Date();
+			await user.save();
+		}
+
+		res.status(200).json({
+			message: "Logged out successfully",
+			isOAuthUser: isOAuthUser,
+
+			...(isOAuthUser && {
+				googleLogoutUrl: "https://accounts.google.com/logout",
+			}),
+		});
 	} catch (err) {
 		res.status(500).json({ error: err.message || "Server error" });
 	}
 };
 
-// Schedule futsal owner for deletion (soft delete, 24h restore window)
 exports.scheduleOwnerDeletion = async (req, res) => {
 	try {
 		const owner = await User.findById(req.params.id);
@@ -516,10 +541,10 @@ exports.scheduleOwnerDeletion = async (req, res) => {
 				.status(400)
 				.json({ message: "Already scheduled for deletion" });
 		}
-		owner.scheduledDeletion = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24h from now
+		owner.scheduledDeletion = new Date(Date.now() + 24 * 60 * 60 * 1000);
 		owner.isDeleted = false;
 		await owner.save();
-		// Notify owner
+
 		if (owner.email) {
 			const html = `<p>Your futsal owner account and all related data (futsal, bookings) will be permanently deleted in 24 hours unless restored. If this was not intended, please contact support or restore your account within the next 24 hours.</p>`;
 			await sendMail({
@@ -534,7 +559,6 @@ exports.scheduleOwnerDeletion = async (req, res) => {
 	}
 };
 
-// Restore owner before hard deletion
 exports.restoreOwner = async (req, res) => {
 	try {
 		const owner = await User.findById(req.params.id);
@@ -555,7 +579,6 @@ exports.restoreOwner = async (req, res) => {
 	}
 };
 
-// Add a futsal to user's favourites
 exports.addFutsalToFavourites = async (req, res) => {
 	try {
 		const userId = req.user._id;
@@ -577,7 +600,6 @@ exports.addFutsalToFavourites = async (req, res) => {
 	}
 };
 
-// Remove a futsal from user's favourites
 exports.removeFutsalFromFavourites = async (req, res) => {
 	try {
 		const userId = req.user._id;
@@ -597,7 +619,6 @@ exports.removeFutsalFromFavourites = async (req, res) => {
 	}
 };
 
-// Get user's favourite futsals
 exports.getFavouriteFutsals = async (req, res) => {
 	try {
 		const userId = req.user._id;
@@ -609,13 +630,12 @@ exports.getFavouriteFutsals = async (req, res) => {
 
 		if (!user) return res.status(404).json({ message: "User not found" });
 
-		// Format the response to include only the required fields
 		const formattedFavorites = user.favoritesFutsal.map((futsal) => ({
 			_id: futsal._id,
 			name: futsal.name,
 			address: futsal.location?.address || "",
 			coordinates: futsal.location?.coordinates || [],
-			image: futsal.images?.[0] || null, // Get the first image if available
+			image: futsal.images?.[0] || null,
 			price: futsal.pricing?.basePrice || 0,
 		}));
 
@@ -625,7 +645,6 @@ exports.getFavouriteFutsals = async (req, res) => {
 	}
 };
 
-// POST /api/users/upload-profile-image
 exports.uploadProfileImage = async (req, res) => {
 	try {
 		if (!req.file)
@@ -633,7 +652,7 @@ exports.uploadProfileImage = async (req, res) => {
 		const userId = req.user._id;
 		const user = await User.findById(userId);
 		if (!user) return res.status(404).json({ error: "User not found" });
-		// Upload image
+
 		const result = await uploadImage(req.file.path, `profiles/${userId}`);
 		user.profileImage = result.secure_url;
 		await user.save();
@@ -645,7 +664,6 @@ exports.uploadProfileImage = async (req, res) => {
 	}
 };
 
-// PUT /api/users/update-profile-image
 exports.updateProfileImage = async (req, res) => {
 	try {
 		if (!req.file)
@@ -653,7 +671,7 @@ exports.updateProfileImage = async (req, res) => {
 		const userId = req.user._id;
 		const user = await User.findById(userId);
 		if (!user) return res.status(404).json({ error: "User not found" });
-		// Optionally delete old image if public_id is provided
+
 		if (req.body.oldPublicId) await deleteImage(req.body.oldPublicId);
 		const result = await uploadImage(req.file.path, `profiles/${userId}`);
 		user.profileImage = result.secure_url;
@@ -666,16 +684,14 @@ exports.updateProfileImage = async (req, res) => {
 	}
 };
 
-// Permanently delete a user and their profile image from Cloudinary
 exports.deleteUser = async (req, res) => {
 	try {
 		const user = await User.findByIdAndDelete(req.params.id);
 		if (!user) {
 			return res.status(404).json({ error: "User not found" });
 		}
-		// Delete user profile image from Cloudinary if present
+
 		if (user.profileImage) {
-			// Try to extract public_id from the URL
 			const match = user.profileImage.match(
 				/\/profiles\/([^/.]+)\/(.+)\.[a-zA-Z]+$/
 			);
@@ -690,7 +706,6 @@ exports.deleteUser = async (req, res) => {
 	}
 };
 
-// MFA Setup - Generate TOTP secret and QR code
 exports.setupMFA = async (req, res) => {
 	try {
 		const user = await User.findById(req.user.id);
@@ -698,30 +713,25 @@ exports.setupMFA = async (req, res) => {
 			return res.status(404).json({ error: "User not found" });
 		}
 
-		// Generate TOTP secret
 		const mfaData = MFAService.generateTOTPSecret(user.email);
-		
-		// Generate QR code
+
 		const qrCodeUrl = await MFAService.generateQRCode(mfaData.otpauthUrl);
 
-		// Don't save the secret yet - wait for verification
 		res.json({
 			secret: mfaData.secret,
 			qrCodeUrl: qrCodeUrl,
-			manualEntryKey: mfaData.secret
+			manualEntryKey: mfaData.secret,
 		});
-
 	} catch (err) {
 		res.locals.errorMessage = err.message;
 		res.status(500).json({ error: err.message || "Server error" });
 	}
 };
 
-// MFA Enable - Verify TOTP and enable MFA
 exports.enableMFA = async (req, res) => {
 	try {
 		const { secret, token } = req.body;
-		
+
 		if (!secret || !token) {
 			return res.status(400).json({ error: "Secret and token are required" });
 		}
@@ -731,48 +741,46 @@ exports.enableMFA = async (req, res) => {
 			return res.status(404).json({ error: "User not found" });
 		}
 
-		// Verify the TOTP token with the provided secret
-		const isValid = MFAService.verifyTOTPToken(encrypt(secret), token);
+		const isValid = MFAService.verifyTOTPTokenPlain(secret, token);
 		if (!isValid) {
 			return res.status(400).json({ error: "Invalid authenticator code" });
 		}
 
-		// Save encrypted secret and enable MFA
 		user.totpSecret = encrypt(secret);
 		user.isMfaEnabled = true;
-		
-		// Generate backup codes
+
 		user.backupCodes = MFAService.generateBackupCodes();
-		
+
 		await user.save();
 
 		res.json({
 			message: "MFA enabled successfully",
-			backupCodes: user.backupCodes.map(code => code.code)
+			backupCodes: user.backupCodes.map((code) => code.code),
 		});
-
 	} catch (err) {
 		res.locals.errorMessage = err.message;
 		res.status(500).json({ error: err.message || "Server error" });
 	}
 };
 
-// MFA Verify - Complete login with MFA
 exports.verifyMFA = async (req, res) => {
 	try {
 		const { token, backupCode } = req.body;
 		const mfaToken = req.cookies.mfaToken;
 
 		if (!mfaToken) {
-			return res.status(400).json({ error: "MFA session expired. Please login again." });
+			return res
+				.status(400)
+				.json({ error: "MFA session expired. Please login again." });
 		}
 
-		// Verify MFA token
 		let decoded;
 		try {
 			decoded = jwt.verify(mfaToken, config.jwtSecret);
 		} catch (err) {
-			return res.status(400).json({ error: "Invalid MFA session. Please login again." });
+			return res
+				.status(400)
+				.json({ error: "Invalid MFA session. Please login again." });
 		}
 
 		if (!decoded.requiresMFA) {
@@ -786,23 +794,25 @@ exports.verifyMFA = async (req, res) => {
 
 		let isValid = false;
 
-		// Verify TOTP token or backup code
 		if (token) {
 			isValid = MFAService.verifyTOTPToken(user.totpSecret, token);
 		} else if (backupCode) {
 			isValid = MFAService.verifyBackupCode(user, backupCode);
 			if (isValid) {
-				await user.save(); // Save the used backup code
+				await user.save();
 			}
 		} else {
-			return res.status(400).json({ error: "TOTP token or backup code required" });
+			return res
+				.status(400)
+				.json({ error: "TOTP token or backup code required" });
 		}
 
 		if (!isValid) {
-			return res.status(400).json({ error: "Invalid authenticator code or backup code" });
+			return res
+				.status(400)
+				.json({ error: "Invalid authenticator code or backup code" });
 		}
 
-		// Complete login process
 		user.lastLogin = new Date();
 		await user.save();
 
@@ -810,32 +820,30 @@ exports.verifyMFA = async (req, res) => {
 		const refreshToken = generateRefreshToken(user);
 		await Session.create({ user: user._id, token: refreshToken });
 
-		// Clear MFA token and set access tokens
 		res.clearCookie("mfaToken");
 		res.cookie("accessToken", accessToken, {
 			httpOnly: true,
 			secure: config.nodeEnv === "production",
 			sameSite: "strict",
-			maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
+			maxAge: 1000 * 60 * 60 * 24 * 7,
 		});
 		res.cookie("refreshToken", refreshToken, {
 			httpOnly: true,
 			secure: config.nodeEnv === "production",
 			sameSite: "strict",
-			maxAge: 1000 * 60 * 60 * 24 * 30, // 30 days
+			maxAge: 1000 * 60 * 60 * 24 * 30,
 		});
 
-		// Decrypt user data for response
 		const userData = user.toObject();
 		const { decrypt } = require("../utils/encryption");
 		const directDecrypt = (encryptedText) => {
 			try {
-				if (!encryptedText || !encryptedText.includes(':')) {
+				if (!encryptedText || !encryptedText.includes(":")) {
 					return encryptedText;
 				}
 				return decrypt(encryptedText);
 			} catch (error) {
-				console.error('Direct decryption failed:', error.message);
+				console.error("Direct decryption failed:", error.message);
 				return encryptedText;
 			}
 		};
@@ -844,7 +852,7 @@ exports.verifyMFA = async (req, res) => {
 			...userData,
 			email: directDecrypt(userData.email),
 			phone: directDecrypt(userData.phone),
-			fullName: directDecrypt(userData.fullName)
+			fullName: directDecrypt(userData.fullName),
 		};
 
 		res.json({
@@ -857,23 +865,23 @@ exports.verifyMFA = async (req, res) => {
 				profileImage: user.profileImage,
 				authProvider: user.authProvider,
 				isEmailVerified: user.isEmailVerified,
-				isMfaEnabled: user.isMfaEnabled
+				isMfaEnabled: user.isMfaEnabled,
 			},
 		});
-
 	} catch (err) {
 		res.locals.errorMessage = err.message;
 		res.status(500).json({ error: err.message || "Server error" });
 	}
 };
 
-// MFA Disable - Disable MFA for user
 exports.disableMFA = async (req, res) => {
 	try {
 		const { password } = req.body;
 
 		if (!password) {
-			return res.status(400).json({ error: "Password is required to disable MFA" });
+			return res
+				.status(400)
+				.json({ error: "Password is required to disable MFA" });
 		}
 
 		const user = await User.findById(req.user.id);
@@ -881,27 +889,23 @@ exports.disableMFA = async (req, res) => {
 			return res.status(404).json({ error: "User not found" });
 		}
 
-		// Verify password
 		const isMatch = await user.comparePassword(password);
 		if (!isMatch) {
 			return res.status(400).json({ error: "Invalid password" });
 		}
 
-		// Disable MFA
 		MFAService.disableMFA(user);
 		await user.save();
 
 		res.json({
-			message: "MFA disabled successfully"
+			message: "MFA disabled successfully",
 		});
-
 	} catch (err) {
 		res.locals.errorMessage = err.message;
 		res.status(500).json({ error: err.message || "Server error" });
 	}
 };
 
-// MFA Status - Get MFA status for user
 exports.getMFAStatus = async (req, res) => {
 	try {
 		const user = await User.findById(req.user.id);
@@ -911,16 +915,14 @@ exports.getMFAStatus = async (req, res) => {
 
 		res.json({
 			isMfaEnabled: user.isMfaEnabled,
-			backupCodesRemaining: MFAService.getUnusedBackupCodesCount(user)
+			backupCodesRemaining: MFAService.getUnusedBackupCodesCount(user),
 		});
-
 	} catch (err) {
 		res.locals.errorMessage = err.message;
 		res.status(500).json({ error: err.message || "Server error" });
 	}
 };
 
-// Regenerate Backup Codes
 exports.regenerateBackupCodes = async (req, res) => {
 	try {
 		const { password } = req.body;
@@ -938,21 +940,18 @@ exports.regenerateBackupCodes = async (req, res) => {
 			return res.status(400).json({ error: "MFA is not enabled" });
 		}
 
-		// Verify password
 		const isMatch = await user.comparePassword(password);
 		if (!isMatch) {
 			return res.status(400).json({ error: "Invalid password" });
 		}
 
-		// Regenerate backup codes
 		const newBackupCodes = MFAService.regenerateBackupCodes(user);
 		await user.save();
 
 		res.json({
 			message: "Backup codes regenerated successfully",
-			backupCodes: newBackupCodes.map(code => code.code)
+			backupCodes: newBackupCodes.map((code) => code.code),
 		});
-
 	} catch (err) {
 		res.locals.errorMessage = err.message;
 		res.status(500).json({ error: err.message || "Server error" });

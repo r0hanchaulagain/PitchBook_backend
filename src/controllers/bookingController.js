@@ -1,4 +1,3 @@
-// Booking Controller: Handles all booking-related logic
 const mongoose = require("mongoose");
 const Booking = require("../models/Booking");
 const Futsal = require("../models/Futsal");
@@ -9,20 +8,17 @@ const { isHoliday } = require("../services/holidayService");
 const { initiateKhaltiPayment } = require("../utils/payment");
 const config = require("../config/env_config");
 
-// POST /api/bookings/cash - Create a new booking with cash payment
 exports.createCashBooking = async (req, res) => {
-    // Don't use transactions in development to avoid replica set requirement
-    const useTransaction = config.nodeEnv === "production";
-    const session = useTransaction ? await mongoose.startSession() : null;
+	const useTransaction = config.nodeEnv === "production";
+	const session = useTransaction ? await mongoose.startSession() : null;
 
-    if (useTransaction) await session.startTransaction();
+	if (useTransaction) await session.startTransaction();
 
 	try {
 		const notificationController = getNotificationController(req);
 		const { futsalId, date, startTime, endTime, bookingType, teamA, teamB } =
 			req.body;
 
-		// Input validation
 		if (!futsalId || !date || !startTime || !endTime || !bookingType) {
 			if (useTransaction) {
 				await session.abortTransaction();
@@ -31,16 +27,13 @@ exports.createCashBooking = async (req, res) => {
 			return res.status(400).json({ message: "Missing required fields" });
 		}
 
-		// Set default values for teamA and teamB based on bookingType
 		let finalTeamA = teamA;
 		let finalTeamB = teamB;
 
 		if (bookingType === "full") {
-			// For full bookings, default both teams to true if not provided
 			finalTeamA = finalTeamA !== undefined ? finalTeamA : true;
 			finalTeamB = finalTeamB !== undefined ? finalTeamB : true;
 		} else if (bookingType === "partial") {
-			// For partial bookings, require at least teamA
 			if (finalTeamA === undefined) {
 				if (useTransaction) {
 					await session.abortTransaction();
@@ -50,7 +43,7 @@ exports.createCashBooking = async (req, res) => {
 					.status(400)
 					.json({ message: "Team A is required for partial booking" });
 			}
-			// Ensure teamB is false for partial bookings
+
 			finalTeamB = false;
 		} else {
 			if (useTransaction) {
@@ -60,7 +53,6 @@ exports.createCashBooking = async (req, res) => {
 			return res.status(400).json({ message: "Invalid booking type" });
 		}
 
-		// 1. Futsal existence and status
 		const query = Futsal.findById(futsalId).populate("owner");
 		if (useTransaction) query.session(session);
 		const futsal = await query;
@@ -73,7 +65,6 @@ exports.createCashBooking = async (req, res) => {
 			return res.status(404).json({ message: "Futsal not found or inactive" });
 		}
 
-		// 2. Calculate duration and validate
 		const duration = calculateDurationInMinutes(startTime, endTime);
 		if (duration < 30 || duration > 120 || duration % 15 !== 0) {
 			if (useTransaction) {
@@ -86,7 +77,6 @@ exports.createCashBooking = async (req, res) => {
 			});
 		}
 
-		// 3. Check for overlapping bookings
 		const slotQuery = Booking.findOne({
 			futsal: futsalId,
 			date: new Date(date),
@@ -108,7 +98,6 @@ exports.createCashBooking = async (req, res) => {
 			return res.status(409).json({ message: "Time slot already booked" });
 		}
 
-		// 4. Check if booking is in the future
 		const bookingStart = new Date(`${date}T${startTime}`);
 		if (bookingStart < new Date()) {
 			if (useTransaction) {
@@ -118,7 +107,6 @@ exports.createCashBooking = async (req, res) => {
 			return res.status(400).json({ message: "Cannot book for past time" });
 		}
 
-		// 3. Validate booking time against futsal operating hours
 		const isHolidayFlag = await isHoliday(date);
 		if (
 			!isSlotWithinOperatingHours(
@@ -140,16 +128,13 @@ exports.createCashBooking = async (req, res) => {
 			});
 		}
 
-		// 5. Calculate dynamic price with all modifiers
 		const baseDynamicPrice = await calculateDynamicPrice(futsal, {
 			date,
 			time: startTime,
-			// Optionally: userCoords, commission, avgRating, reviewCount
 		});
-		// Adjust price for actual duration
+
 		const price = Math.round(baseDynamicPrice * (duration / 60));
 
-		// 6. Create booking with cash payment
 		const booking = new Booking({
 			futsal: futsalId,
 			user: req.user._id,
@@ -172,7 +157,6 @@ exports.createCashBooking = async (req, res) => {
 			updatedAt: new Date(),
 		});
 
-		// Save booking (with or without transaction)
 		if (useTransaction) {
 			const saveOptions = useTransaction ? { session } : {};
 			await booking.save(saveOptions);
@@ -180,7 +164,6 @@ exports.createCashBooking = async (req, res) => {
 			await booking.save();
 		}
 
-		// 7. Create payment record for cash payment
 		const Payment = require("../models/Payment");
 		const payment = new Payment({
 			user: req.user._id,
@@ -206,7 +189,6 @@ exports.createCashBooking = async (req, res) => {
 			await payment.save();
 		}
 
-		// Update booking with payment reference
 		booking.payment = payment._id;
 		if (useTransaction) {
 			const saveOptions = useTransaction ? { session } : {};
@@ -215,7 +197,6 @@ exports.createCashBooking = async (req, res) => {
 			await booking.save();
 		}
 
-		// Create notification for the user who made the booking
 		await notificationController.createNotification({
 			user: req.user._id,
 			message: `Your cash booking for ${futsal.name} on ${date} from ${startTime} to ${endTime} has been created.`,
@@ -224,7 +205,6 @@ exports.createCashBooking = async (req, res) => {
 			futsal: futsalId,
 		});
 
-		// Create notification for the futsal owner
 		if (futsal.owner && futsal.owner._id) {
 			await notificationController.createNotification({
 				user: futsal.owner._id,
@@ -238,7 +218,6 @@ exports.createCashBooking = async (req, res) => {
 			});
 		}
 
-		// Commit the transaction if in production
 		if (useTransaction) {
 			await session.commitTransaction();
 			session.endSession();
@@ -251,7 +230,6 @@ exports.createCashBooking = async (req, res) => {
 	} catch (err) {
 		console.error("Error creating cash booking:", err);
 
-		// Only try to abort transaction if we're using one
 		if (useTransaction && session) {
 			try {
 				await session.abortTransaction();
@@ -269,10 +247,8 @@ exports.createCashBooking = async (req, res) => {
 	}
 };
 
-// Get notification controller with WebSocket support
 const getNotificationController = (req = {}) => {
 	try {
-		// If req has app, use it to get io and connectedUsers
 		if (req.app) {
 			const io = req.app.get("io");
 			const connectedUsers = req.app.get("connectedUsers");
@@ -281,33 +257,29 @@ const getNotificationController = (req = {}) => {
 				connectedUsers
 			);
 		}
-		// Otherwise, return a mock notification controller that won't send real-time notifications
-		// but will still allow database operations
+
 		console.warn(
 			"No request.app available, using mock notification controller"
 		);
 		return {
 			createNotification: async (data) => {
-	
 				return { _id: new mongoose.Types.ObjectId() };
 			},
 		};
 	} catch (error) {
 		console.error("Error initializing notification controller:", error);
-		// Return a mock controller that won't fail
+
 		return {
 			createNotification: async () => ({}),
 		};
 	}
 };
 
-// Allowed booking durations in minutes
 const ALLOWED_DURATIONS = [60, 120];
 const MAX_BULK_DAYS = 7;
-const BOOKING_DURATION_MINUTES = 60; // Default booking duration in minutes
+const BOOKING_DURATION_MINUTES = 60;
 
 function calculateDurationInMinutes(startTime, endTime) {
-	// startTime and endTime are in "HH:MM" format
 	const [sh, sm] = startTime.split(":").map(Number);
 	const [eh, em] = endTime.split(":").map(Number);
 	return eh * 60 + em - (sh * 60 + sm);
@@ -339,9 +311,7 @@ function getDayOfWeek(date) {
 		.toLowerCase();
 }
 
-// POST /api/bookings - Create a new booking
 exports.createBooking = async (req, res) => {
-	// Only use transactions in production to avoid replica set requirement in development
 	const useTransaction = config.nodeEnv === "production";
 	const session = useTransaction ? await mongoose.startSession() : null;
 
@@ -362,7 +332,6 @@ exports.createBooking = async (req, res) => {
 			return res.status(400).json({ message: "Missing required fields" });
 		}
 
-		// Validate booking type and team parameters
 		if (bookingType === "full" && (!teamA || !teamB)) {
 			if (useTransaction) {
 				await session.abortTransaction();
@@ -380,7 +349,7 @@ exports.createBooking = async (req, res) => {
 				.status(400)
 				.json({ message: "Team A is required for partial booking" });
 		}
-		// Team boolean validation
+
 		if (bookingType === "full") {
 			if (teamA !== true || teamB !== true) {
 				return res.status(400).json({
@@ -397,14 +366,14 @@ exports.createBooking = async (req, res) => {
 		} else {
 			return res.status(400).json({ message: "Invalid bookingType" });
 		}
-		// 1. Futsal existence and status
+
 		const futsal = await Futsal.findById(futsalId).populate("owner");
 		if (!futsal || !futsal.isActive) {
 			return res.status(404).json({ message: "Futsal not found or inactive" });
 		}
-		// Calculate duration
+
 		const duration = calculateDurationInMinutes(startTime, endTime);
-		// Validate duration: must be 30-120 min and a multiple of 15
+
 		if (duration < 30 || duration > 120 || duration % 15 !== 0) {
 			if (useTransaction) {
 				await session.abortTransaction();
@@ -415,15 +384,14 @@ exports.createBooking = async (req, res) => {
 					"Invalid booking duration. Allowed: 30-120 min, in 15-min steps.",
 			});
 		}
-		// Calculate dynamic price using shared utility (per hour)
+
 		const baseDynamicPrice = await calculateDynamicPrice(futsal, {
 			date,
 			time: startTime,
-			// Optionally: userCoords, commission, avgRating, reviewCount
 		});
-		// Adjust price for actual duration
+
 		const finalPrice = Math.round(baseDynamicPrice * (duration / 60));
-		// 3. Operating hours validation (new logic)
+
 		const isHolidayFlag = await isHoliday(date);
 		if (
 			!isSlotWithinOperatingHours(
@@ -443,7 +411,6 @@ exports.createBooking = async (req, res) => {
 				.json({ message: "Booking time outside operating hours" });
 		}
 
-		// 4. Booking must be in the future
 		const bookingStart = new Date(`${date}T${startTime}`);
 		if (bookingStart < new Date()) {
 			if (useTransaction) {
@@ -452,7 +419,7 @@ exports.createBooking = async (req, res) => {
 			}
 			return res.status(400).json({ message: "Cannot book for past time" });
 		}
-		// 5. Check for paid bookings in the same slot
+
 		const paidBookingConflict = await Booking.findOne({
 			futsal: futsalId,
 			date: new Date(date),
@@ -471,17 +438,15 @@ exports.createBooking = async (req, res) => {
 			});
 		}
 
-		// 6. Find any unpaid competing bookings for the same slot
 		const competingBookings = await Booking.find({
 			futsal: futsalId,
 			date: new Date(date),
 			isPaid: false,
 			status: "pending",
-			paymentExpiresAt: { $gt: new Date() }, // Only consider unexpired unpaid bookings
+			paymentExpiresAt: { $gt: new Date() },
 			$or: [{ startTime: { $lt: endTime }, endTime: { $gt: startTime } }],
 		}).session(session || null);
 
-		// 7. User cannot have overlapping paid bookings
 		const userPaidConflict = await Booking.findOne({
 			user: req.user._id,
 			date: new Date(date),
@@ -500,7 +465,6 @@ exports.createBooking = async (req, res) => {
 				.json({ message: "You already have a paid booking during this time" });
 		}
 
-		// 8. Check if user has too many pending unpaid bookings
 		const userPendingCount = await Booking.countDocuments({
 			user: req.user._id,
 			isPaid: false,
@@ -509,7 +473,6 @@ exports.createBooking = async (req, res) => {
 		}).session(useTransaction ? session : null);
 
 		if (userPendingCount >= 3) {
-			// Limit to 3 pending bookings per user
 			if (useTransaction) {
 				await session.abortTransaction();
 				session.endSession();
@@ -519,8 +482,8 @@ exports.createBooking = async (req, res) => {
 					"You have too many pending bookings. Please complete payment for existing bookings or wait for them to expire.",
 			});
 		}
-		// 9. Create booking with payment expiration (15 minutes from now)
-		const paymentExpiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
+
+		const paymentExpiresAt = new Date(Date.now() + 15 * 60 * 1000);
 
 		const booking = new Booking({
 			futsal: futsalId,
@@ -540,7 +503,6 @@ exports.createBooking = async (req, res) => {
 			teamB,
 		});
 
-		// 10. Update competing bookings to include this new booking
 		if (competingBookings.length > 0) {
 			await Booking.updateMany(
 				{ _id: { $in: competingBookings.map((b) => b._id) } },
@@ -550,11 +512,9 @@ exports.createBooking = async (req, res) => {
 		}
 
 		try {
-			// Save booking with session if in transaction
 			const saveOptions = useTransaction ? { session } : {};
 			await booking.save(saveOptions);
 
-			// Create notification for the user who made the booking
 			await notificationController.createNotification(
 				{
 					user: req.user._id,
@@ -566,7 +526,6 @@ exports.createBooking = async (req, res) => {
 				{ session: useTransaction ? session : null }
 			);
 
-			// Create notification for the futsal owner
 			if (futsal.owner && futsal.owner._id) {
 				await notificationController.createNotification(
 					{
@@ -583,12 +542,10 @@ exports.createBooking = async (req, res) => {
 				);
 			}
 
-			// Commit the transaction if in production
 			if (useTransaction) {
 				await session.commitTransaction();
 				session.endSession();
 			} else if (session) {
-				// If we created a session but aren't using transactions, end it
 				session.endSession();
 			}
 
@@ -604,12 +561,10 @@ exports.createBooking = async (req, res) => {
 				paymentExpiresAt,
 			});
 		} catch (err) {
-			// If any error occurs, abort the transaction if it was started
 			if (useTransaction && session && session.inTransaction()) {
 				await session.abortTransaction();
 				session.endSession();
 			} else if (session) {
-				// If we created a session but aren't using transactions, end it
 				session.endSession();
 			}
 			console.error("Error creating booking:", err);
@@ -619,12 +574,10 @@ exports.createBooking = async (req, res) => {
 			});
 		}
 	} catch (err) {
-		// Handle any errors in the outer try block
 		if (useTransaction && session && session.inTransaction()) {
 			await session.abortTransaction();
 			session.endSession();
 		} else if (session) {
-			// If we created a session but aren't using transactions, end it
 			session.endSession();
 		}
 		console.error("Unexpected error in createBooking:", err);
@@ -635,256 +588,227 @@ exports.createBooking = async (req, res) => {
 	}
 };
 
-// POST /api/bookings/bulk-with-payment - Create bulk booking with Khalti payment for full days
 exports.createBulkBookingWithPayment = async (req, res) => {
-    const useTransaction = config.nodeEnv === "production";
-    const session = useTransaction ? await mongoose.startSession() : null;
-    const notificationController = getNotificationController(req);
+	const useTransaction = config.nodeEnv === "production";
+	const session = useTransaction ? await mongoose.startSession() : null;
+	const notificationController = getNotificationController(req);
 
-    if (useTransaction) {
-        await session.startTransaction();
-    }
+	if (useTransaction) {
+		await session.startTransaction();
+	}
 
-    try {
-        const { futsalId, startDate, numberOfDays, bookingType } = req.body;
-        const userId = req.user._id;
+	try {
+		const { futsalId, startDate, numberOfDays, bookingType } = req.body;
+		const userId = req.user._id;
 
-        // Input validation
-        if (!futsalId || !startDate || !numberOfDays || !bookingType) {
-            if (useTransaction) {
-                await session.abortTransaction();
-                session.endSession();
-            }
-            return res.status(400).json({ message: "Missing required fields" });
-        }
+		if (!futsalId || !startDate || !numberOfDays || !bookingType) {
+			if (useTransaction) {
+				await session.abortTransaction();
+				session.endSession();
+			}
+			return res.status(400).json({ message: "Missing required fields" });
+		}
 
-        // Validate number of days (max 7 days)
-        if (numberOfDays > MAX_BULK_DAYS) {
-            if (useTransaction) {
-                await session.abortTransaction();
-                session.endSession();
-            }
-            return res.status(400).json({ 
+		if (numberOfDays > MAX_BULK_DAYS) {
+			if (useTransaction) {
+				await session.abortTransaction();
+				session.endSession();
+			}
+			return res.status(400).json({
 				message: `Bulk booking cannot exceed ${MAX_BULK_DAYS} days`,
-            });
-        }
+			});
+		}
 
-        // Get futsal details including operating hours
 		const futsal = await Futsal.findById(futsalId).populate("owner");
-        if (!futsal || !futsal.isActive) {
-            if (useTransaction) {
-                await session.abortTransaction();
-                session.endSession();
-            }
-            return res.status(404).json({ message: "Futsal not found or inactive" });
-        }
+		if (!futsal || !futsal.isActive) {
+			if (useTransaction) {
+				await session.abortTransaction();
+				session.endSession();
+			}
+			return res.status(404).json({ message: "Futsal not found or inactive" });
+		}
 
-        // Validate booking type
 		if (!["full", "partial"].includes(bookingType)) {
-            if (useTransaction) {
-                await session.abortTransaction();
-                session.endSession();
-            }
-            return res.status(400).json({ message: "Invalid bookingType" });
-        }
+			if (useTransaction) {
+				await session.abortTransaction();
+				session.endSession();
+			}
+			return res.status(400).json({ message: "Invalid bookingType" });
+		}
 
-        // Get operating hours or use defaults if not set
 		const openingTime = futsal.operatingHours?.opening || "06:00";
 		const closingTime = futsal.operatingHours?.closing || "22:00";
-        
-        // Calculate total duration in hours
+
 		const durationHours =
 			calculateDurationInMinutes(openingTime, closingTime) / 60;
-        
-        // Calculate price for full day
-        const basePricePerHour = futsal.pricePerHour || 1000;
-        const pricePerDay = Math.ceil(basePricePerHour * durationHours);
-        const totalPrice = pricePerDay * numberOfDays;
 
-        // Generate booking dates and validate each one
-        const bookingDates = [];
-        const currentDate = new Date(startDate);
-        const now = new Date();
-        
-        for (let i = 0; i < numberOfDays; i++) {
-            // Check if booking date is in the past
-            if (currentDate < now) {
-                if (useTransaction) {
-                    await session.abortTransaction();
-                    session.endSession();
-                }
-                return res.status(400).json({ 
+		const basePricePerHour = futsal.pricePerHour || 1000;
+		const pricePerDay = Math.ceil(basePricePerHour * durationHours);
+		const totalPrice = pricePerDay * numberOfDays;
+
+		const bookingDates = [];
+		const currentDate = new Date(startDate);
+		const now = new Date();
+
+		for (let i = 0; i < numberOfDays; i++) {
+			if (currentDate < now) {
+				if (useTransaction) {
+					await session.abortTransaction();
+					session.endSession();
+				}
+				return res.status(400).json({
 					message: `Cannot book for past date: ${currentDate.toISOString().split("T")[0]}`,
-                });
-            }
+				});
+			}
 
-			// Removed isSlotWithinOperatingHours check for full-day booking
-			// (We are booking the entire available day by definition)
-
-            // Check for existing paid bookings
-            const existingBooking = await Booking.findOne({
-                futsal: futsalId,
-                date: currentDate,
-                isPaid: true,
-                status: { $nin: ["cancelled"] },
-                $or: [
-                    { startTime: { $lt: closingTime } },
+			const existingBooking = await Booking.findOne({
+				futsal: futsalId,
+				date: currentDate,
+				isPaid: true,
+				status: { $nin: ["cancelled"] },
+				$or: [
+					{ startTime: { $lt: closingTime } },
 					{ endTime: { $gt: openingTime } },
 				],
-            }).session(useTransaction ? session : null);
+			}).session(useTransaction ? session : null);
 
-            if (existingBooking) {
-                if (useTransaction) {
-                    await session.abortTransaction();
-                    session.endSession();
-                }
-                return res.status(409).json({
+			if (existingBooking) {
+				if (useTransaction) {
+					await session.abortTransaction();
+					session.endSession();
+				}
+				return res.status(409).json({
 					message: `Time slot already booked on ${currentDate.toISOString().split("T")[0]}`,
-                });
-            }
+				});
+			}
 
-            bookingDates.push(new Date(currentDate));
-            currentDate.setDate(currentDate.getDate() + 1);
-        }
+			bookingDates.push(new Date(currentDate));
+			currentDate.setDate(currentDate.getDate() + 1);
+		}
 
-        // Create bookings for each day with payment expiration (30 minutes)
-        const paymentExpiresAt = new Date(Date.now() + 30 * 60 * 1000);
+		const paymentExpiresAt = new Date(Date.now() + 30 * 60 * 1000);
 		const bookings = bookingDates.map((date) => ({
-            user: userId,
-            futsal: futsalId,
-            date: date,
-            startTime: openingTime,
-            endTime: closingTime,
-            price: pricePerDay,
-            bookingType,
-            teamA: true,
+			user: userId,
+			futsal: futsalId,
+			date: date,
+			startTime: openingTime,
+			endTime: closingTime,
+			price: pricePerDay,
+			bookingType,
+			teamA: true,
 			teamB: bookingType === "full",
 			status: "pending",
-            isPaid: false,
+			isPaid: false,
 			paymentStatus: "pending",
 			paymentMethod: "khalti",
-            paymentExpiresAt,
-            createdAt: new Date(),
+			paymentExpiresAt,
+			createdAt: new Date(),
 			updatedAt: new Date(),
-        }));
+		}));
 
-        // Save all bookings
-        const createdBookings = await Booking.insertMany(bookings, { session });
+		const createdBookings = await Booking.insertMany(bookings, { session });
 		const bookingIds = createdBookings.map((b) => b._id);
-		
 
-		// For development/testing: workaround for Khalti display bug
-		const amountToSend = Math.min(totalPrice, 1000); // send in rupees for Khalti UI bug workaround
-		// Prepare Khalti payment payload
+		const amountToSend = Math.min(totalPrice, 1000);
+
 		const khaltiPayload = {
 			name: req.user.fullName || "Customer",
 			email: req.user.email || "",
 			phone: req.user.phone || "",
 			amount: amountToSend,
-            purchase_order_id: `bulk_${Date.now()}`,
-            purchase_order_name: `Full Day Booking for ${futsal.name} (${numberOfDays} days)`,
+			purchase_order_id: `bulk_${Date.now()}`,
+			purchase_order_name: `Full Day Booking for ${futsal.name} (${numberOfDays} days)`,
 			return_url: `${config.frontendUrl}/bookings/verify`,
 		};
-		// Generate Khalti payment URL
+
 		const paymentInit = await initiateKhaltiPayment(khaltiPayload);
 
-
-		// Update bookings with payment reference (no session)
 		const updateResult = await Booking.updateMany(
-            { _id: { $in: bookingIds } },
-            { 
+			{ _id: { $in: bookingIds } },
+			{
 				$set: {
 					"paymentDetails.pidx": paymentInit.pidx,
 					paymentUrl: paymentInit.payment_url,
-            },
+				},
 			}
 		);
 
+		const notificationPromises = [];
 
-
-
-        // Create notifications
-        const notificationPromises = [];
-        
-        // Notification for user
-        notificationPromises.push(
+		notificationPromises.push(
 			notificationController.createNotification(
 				{
-                user: userId,
-                message: `Your bulk booking for ${futsal.name} (${numberOfDays} days) has been created. Please complete payment within 30 minutes.`,
+					user: userId,
+					message: `Your bulk booking for ${futsal.name} (${numberOfDays} days) has been created. Please complete payment within 30 minutes.`,
 					type: "booking_created",
-                meta: { booking: bookingIds[0] }, // Link to first booking
+					meta: { booking: bookingIds[0] },
 					futsal: futsalId,
 				},
 				{ session }
 			)
-        );
+		);
 
-        // Notification for futsal owner
-        if (futsal.owner && futsal.owner._id) {
-            notificationPromises.push(
+		if (futsal.owner && futsal.owner._id) {
+			notificationPromises.push(
 				notificationController.createNotification(
 					{
-                    user: futsal.owner._id,
-                    message: `New bulk booking request for ${futsal.name} (${numberOfDays} days).`,
+						user: futsal.owner._id,
+						message: `New bulk booking request for ${futsal.name} (${numberOfDays} days).`,
 						type: "new_booking",
-                    meta: {
-                        booking: bookingIds[0],
-                        futsal: futsalId,
+						meta: {
+							booking: bookingIds[0],
+							futsal: futsalId,
 							customer: userId,
 						},
 					},
 					{ session }
 				)
-            );
-        }
+			);
+		}
 
-        await Promise.all(notificationPromises);
+		await Promise.all(notificationPromises);
 
-        if (useTransaction) {
-            await session.commitTransaction();
-            session.endSession();
-        }
+		if (useTransaction) {
+			await session.commitTransaction();
+			session.endSession();
+		}
 
-        // Return response with payment URL
-        res.status(201).json({
-            success: true,
+		res.status(201).json({
+			success: true,
 			message:
 				"Full day bookings created successfully. Please complete the payment.",
-            totalAmount: totalPrice,
+			totalAmount: totalPrice,
 			currency: "NPR",
-            paymentUrl: paymentInit.payment_url,
-            pidx: paymentInit.pidx,
-            bookingIds,
+			paymentUrl: paymentInit.payment_url,
+			pidx: paymentInit.pidx,
+			bookingIds,
 			bookingDates: bookingDates.map((d) => d.toISOString().split("T")[0]),
-            paymentExpiresAt,
-            duration: {
-                startTime: openingTime,
-                endTime: closingTime,
+			paymentExpiresAt,
+			duration: {
+				startTime: openingTime,
+				endTime: closingTime,
 				hours: durationHours,
 			},
-        });
-    } catch (error) {
-		// Concise but informative error log for debugging
+		});
+	} catch (error) {
 		console.error("Bulk booking payment error:", {
 			message: error.message,
 			status: error.response?.status,
 			data: error.response?.data,
 			url: error.config?.url,
 		});
-        if (useTransaction && session) {
-            await session.abortTransaction();
-            session.endSession();
-        }
-        res.status(500).json({
-            success: false,
+		if (useTransaction && session) {
+			await session.abortTransaction();
+			session.endSession();
+		}
+		res.status(500).json({
+			success: false,
 			message: "Failed to process full day bulk booking",
 			error: error.message,
 		});
 	}
 };
 
-// GET /api/bookings - Get all bookings (admin only)
 exports.getAllBookings = async (req, res) => {
 	try {
 		if (req.user.role !== "admin") {
@@ -897,14 +821,13 @@ exports.getAllBookings = async (req, res) => {
 	}
 };
 
-// GET /api/bookings/my - Get bookings for the logged-in user
 exports.getMyBookings = async (req, res) => {
 	try {
 		const bookings = await Booking.find({
 			user: req.user._id,
-			status: { $ne: "cancelled" }, // Exclude cancelled bookings
+			status: { $ne: "cancelled" },
 		})
-			.populate("futsal", "name location images") // Only include necessary futsal fields
+			.populate("futsal", "name location images")
 			.sort({ date: -1, startTime: -1 });
 
 		res.status(200).json({
@@ -921,7 +844,6 @@ exports.getMyBookings = async (req, res) => {
 	}
 };
 
-// GET /api/bookings/:id - Get booking by ID
 exports.getBookingById = async (req, res) => {
 	try {
 		const booking = await Booking.findById(req.params.id)
@@ -930,7 +852,7 @@ exports.getBookingById = async (req, res) => {
 		if (!booking) {
 			return res.status(404).json({ message: "Booking not found" });
 		}
-		// Only allow admin or owner of booking to view
+
 		if (
 			req.user.role !== "admin" &&
 			booking.user._id.toString() !== req.user._id.toString()
@@ -943,7 +865,6 @@ exports.getBookingById = async (req, res) => {
 	}
 };
 
-// PUT /api/bookings/:id - Update booking (limited fields)
 exports.updateBooking = async (req, res) => {
 	try {
 		const booking = await Booking.findById(req.params.id);
@@ -956,7 +877,7 @@ exports.updateBooking = async (req, res) => {
 		) {
 			return res.status(403).json({ message: "Not authorized" });
 		}
-		// Only allow updating status for simplicity (specialRequests removed)
+
 		if (req.body.status !== undefined) {
 			booking.status = req.body.status;
 		}
@@ -968,7 +889,6 @@ exports.updateBooking = async (req, res) => {
 	}
 };
 
-// DELETE /api/bookings/:id - Cancel booking
 exports.cancelBooking = async (req, res) => {
 	try {
 		const booking = await Booking.findById(req.params.id).populate("futsal");
@@ -987,7 +907,7 @@ exports.cancelBooking = async (req, res) => {
 		booking.status = "cancelled";
 		booking.updatedAt = new Date();
 		await booking.save();
-		// Notify user
+
 		const user = await User.findById(booking.user);
 		if (user && user.email) {
 			const html = `<p>Your booking for ${booking.futsal.name} on ${booking.date.toDateString()} from ${booking.startTime} to ${booking.endTime} has been cancelled.</p>`;
@@ -997,7 +917,7 @@ exports.cancelBooking = async (req, res) => {
 				html,
 			});
 		}
-		// Notify futsal owner
+
 		if (booking.futsal.owner && booking.futsal.owner.email) {
 			const html = `<p>A booking for your futsal <b>${booking.futsal.name}</b> on ${booking.date.toDateString()} from ${booking.startTime} to ${booking.endTime} has been cancelled.</p>`;
 			await sendBookingEmail({
@@ -1012,83 +932,77 @@ exports.cancelBooking = async (req, res) => {
 	}
 };
 
-// POST /api/bookings/:id/join - Join an existing booking as team B
 exports.joinBooking = async (req, res) => {
 	try {
-        const booking = await Booking.findById(req.params.id).populate('user', 'name email phone');
+		const booking = await Booking.findById(req.params.id).populate(
+			"user",
+			"name email phone"
+		);
 		if (!booking) {
-            return res.status(404).json({ 
-                success: false,
-                message: "Booking not found" 
-            });
+			return res.status(404).json({
+				success: false,
+				message: "Booking not found",
+			});
 		}
 
-        // Check if user is trying to join their own booking
-        if (booking.user._id.toString() === req.user._id.toString()) {
-            return res.status(400).json({ 
-                success: false,
-                message: "You cannot join your own booking" 
-            });
-        }
-        
-        if (booking.bookingType !== "partial" || booking.teamB !== false) {
-            return res.status(400).json({ 
-                success: false,
-                message: "This booking is not open for joining" 
-            });
+		if (booking.user._id.toString() === req.user._id.toString()) {
+			return res.status(400).json({
+				success: false,
+				message: "You cannot join your own booking",
+			});
 		}
-        
-        // Update booking with team B information from authenticated user
-        // Since teamB is a boolean in the schema, we'll store the user info in a separate field
-        booking.teamB = true; // Mark as taken
-        booking.teamBUser = {
-            user: req.user._id,
-            name: req.user.name,
-            email: req.user.email,
-            phone: req.user.phone,
-            joinedAt: new Date()
-        };
-        
-        // Update booking status to confirmed since both teams are now set
-        booking.status = "confirmed";
+
+		if (booking.bookingType !== "partial" || booking.teamB !== false) {
+			return res.status(400).json({
+				success: false,
+				message: "This booking is not open for joining",
+			});
+		}
+
+		booking.teamB = true;
+		booking.teamBUser = {
+			user: req.user._id,
+			name: req.user.name,
+			email: req.user.email,
+			phone: req.user.phone,
+			joinedAt: new Date(),
+		};
+
+		booking.status = "confirmed";
 		booking.updatedAt = new Date();
-        
+
 		await booking.save();
-        
-        // Find and update any competing bookings to mark them as unavailable
-        if (booking.competingBookings && booking.competingBookings.length > 0) {
-            await Booking.updateMany(
-                {
-                    _id: { $in: booking.competingBookings },
-                    status: "pending"
-                },
-                { 
-                    $set: { 
-                        status: "unavailable",
-                        updatedAt: new Date() 
-                    } 
-                }
-            );
-        }
-        
-        res.status(200).json({ 
-            success: true,
-            message: "Successfully joined the booking as Team B", 
-            booking
-        });
-        
+
+		if (booking.competingBookings && booking.competingBookings.length > 0) {
+			await Booking.updateMany(
+				{
+					_id: { $in: booking.competingBookings },
+					status: "pending",
+				},
+				{
+					$set: {
+						status: "unavailable",
+						updatedAt: new Date(),
+					},
+				}
+			);
+		}
+
+		res.status(200).json({
+			success: true,
+			message: "Successfully joined the booking as Team B",
+			booking,
+		});
 	} catch (err) {
-        console.error("Error joining booking:", err);
-        res.status(500).json({ 
-            success: false,
-            message: "Failed to join booking", 
-            error: err.message
-        });
-    }
+		console.error("Error joining booking:", err);
+		res.status(500).json({
+			success: false,
+			message: "Failed to join booking",
+			error: err.message,
+		});
+	}
 };
 
-
-// GET /api/bookings/availability/:futsalId - Check availability for futsal
 exports.checkFutsalAvailability = async (req, res) => {
 	try {
 		const { futsalId } = req.params;
@@ -1101,7 +1015,6 @@ exports.checkFutsalAvailability = async (req, res) => {
 			return res.status(404).json({ message: "Futsal not found or inactive" });
 		}
 		if (startTime && endTime) {
-			// Check slot availability
 			const slotConflict = await Booking.findOne({
 				futsal: futsalId,
 				date: new Date(date),
@@ -1117,7 +1030,7 @@ exports.checkFutsalAvailability = async (req, res) => {
 				.status(200)
 				.json({ available: true, message: "Slot available" });
 		}
-		// If only date, return all bookings for the day
+
 		const bookings = await Booking.find({
 			futsal: futsalId,
 			date: new Date(date),
@@ -1129,19 +1042,18 @@ exports.checkFutsalAvailability = async (req, res) => {
 	}
 };
 
-// POST /api/bookings/initiate - Initiate a new booking as Team A
 exports.initiateBookingAsTeamA = async (req, res) => {
 	try {
 		const { futsalId, date, startTime, endTime, bookingType } = req.body;
 		if (!futsalId || !date || !startTime || !endTime || !bookingType) {
 			return res.status(400).json({ message: "Missing required fields" });
 		}
-		// 1. Futsal existence and status
+
 		const futsal = await Futsal.findById(futsalId).populate("owner");
 		if (!futsal || !futsal.isActive) {
 			return res.status(404).json({ message: "Futsal not found or inactive" });
 		}
-		// Calculate price dynamically (reuse logic from createBooking)
+
 		let price = futsal.pricing.basePrice;
 		if (futsal.pricing.rules && Array.isArray(futsal.pricing.rules)) {
 			const bookingDay = getDayOfWeek(date);
@@ -1155,14 +1067,14 @@ exports.initiateBookingAsTeamA = async (req, res) => {
 				}
 			}
 		}
-		// Duration validation
+
 		const duration = calculateDurationInMinutes(startTime, endTime);
 		if (!ALLOWED_DURATIONS.includes(duration)) {
 			return res.status(400).json({
 				message: "Invalid booking duration. Allowed: 30, 60, 90, 120 min",
 			});
 		}
-		// Check slot availability
+
 		const slotConflict = await Booking.findOne({
 			futsal: futsalId,
 			date: new Date(date),
@@ -1173,7 +1085,7 @@ exports.initiateBookingAsTeamA = async (req, res) => {
 		if (slotConflict) {
 			return res.status(409).json({ message: "Slot already booked" });
 		}
-		// Create booking with current user as Team A (boolean)
+
 		const booking = new Booking({
 			futsal: futsalId,
 			user: req.user._id,
@@ -1189,10 +1101,9 @@ exports.initiateBookingAsTeamA = async (req, res) => {
 			updatedAt: new Date(),
 		});
 		await booking.save();
-		// Notify futsal owner
+
 		if (futsal.owner && futsal.owner.email) {
 			const html = `<p>A new booking has been initiated for your futsal <b>${futsal.name}</b> on ${date} from ${startTime} to ${endTime}.</p>`;
-			// await sendBookingEmail({ to: futsal.owner.email, subject: 'New Booking Initiated', html });
 		}
 		res.status(201).json({ message: "Booking initiated as Team A", booking });
 	} catch (err) {
@@ -1200,7 +1111,6 @@ exports.initiateBookingAsTeamA = async (req, res) => {
 	}
 };
 
-// GET /api/bookings/available-slots?futsalId=...&date=YYYY-MM-DD
 exports.getAvailableSlots = async (req, res) => {
 	try {
 		const { futsalId, date } = req.query;
@@ -1214,7 +1124,6 @@ exports.getAvailableSlots = async (req, res) => {
 			return res.status(404).json({ message: "Futsal not found" });
 		}
 
-		// Get all bookings that should block the time slot
 		const bookings = await Booking.find({
 			futsal: futsalId,
 			date: new Date(date),
@@ -1227,7 +1136,6 @@ exports.getAvailableSlots = async (req, res) => {
 			],
 		});
 
-		// Return only the necessary time slot information
 		const bookedSlots = bookings.map((b) => ({
 			startTime: b.startTime,
 			endTime: b.endTime,
@@ -1239,7 +1147,6 @@ exports.getAvailableSlots = async (req, res) => {
 	}
 };
 
-// POST /api/bookings/:id/initiate-payment - Initiate Khalti payment for a booking
 exports.initiateKhaltiPayment = async (req, res) => {
 	try {
 		const bookingId = req.params.id;
@@ -1248,7 +1155,7 @@ exports.initiateKhaltiPayment = async (req, res) => {
 		if (booking.paymentStatus === "paid") {
 			return res.status(400).json({ error: "Booking already paid" });
 		}
-		// Prepare payment details
+
 		const { fullName, email, phone } = booking.user;
 		const amount = booking.price;
 		const return_url = req.body.return_url || req.query.return_url;
@@ -1261,7 +1168,7 @@ exports.initiateKhaltiPayment = async (req, res) => {
 			purchase_order_name: `Booking for ${booking.futsal.name}`,
 			return_url,
 		});
-		// Save pidx to booking
+
 		booking.paymentDetails = booking.paymentDetails || {};
 		booking.paymentDetails.khaltiPidx = paymentInit.pidx;
 		await booking.save();
@@ -1276,11 +1183,7 @@ exports.initiateKhaltiPayment = async (req, res) => {
 	}
 };
 
-// GET /api/bookings/:id/verify-payment?pidx=... - Verify Khalti payment for a booking
 exports.verifyKhaltiPayment = async (req, res) => {
-	
-
-	// Only use transactions in production to avoid replica set requirement in development
 	const useTransaction = config.nodeEnv === "production";
 	const session = useTransaction ? await mongoose.startSession() : null;
 
@@ -1302,7 +1205,6 @@ exports.verifyKhaltiPayment = async (req, res) => {
 			return res.status(400).json({ error: "Payment ID (pidx) is required" });
 		}
 
-		// Find the booking
 		const query = Booking.findById(bookingId)
 			.populate("futsal user")
 			.populate({
@@ -1314,14 +1216,11 @@ exports.verifyKhaltiPayment = async (req, res) => {
 				],
 			});
 
-		// Add session only if using transactions
 		if (useTransaction) {
 			query.session(session);
 		}
 
 		const booking = await query;
-
-
 
 		if (!booking) {
 			if (useTransaction) {
@@ -1333,7 +1232,6 @@ exports.verifyKhaltiPayment = async (req, res) => {
 			return res.status(404).json({ error: "Booking not found" });
 		}
 
-		// Check if booking is already paid
 		if (booking.isPaid) {
 			if (useTransaction) {
 				await session.commitTransaction();
@@ -1348,7 +1246,6 @@ exports.verifyKhaltiPayment = async (req, res) => {
 			});
 		}
 
-		// Check if booking payment has expired
 		if (booking.paymentExpiresAt && booking.paymentExpiresAt < new Date()) {
 			if (useTransaction) {
 				await session.abortTransaction();
@@ -1362,17 +1259,11 @@ exports.verifyKhaltiPayment = async (req, res) => {
 			});
 		}
 
-		// Lookup payment status from Khalti
-
 		const lookup = await require("../services/khaltiService").lookupPayment(
 			pidx
 		);
 
-
-
 		if (lookup.status === "Completed") {
-			// 1. Mark the booking as paid
-
 			booking.isPaid = true;
 			booking.paymentStatus = "paid";
 			booking.status = "confirmed";
@@ -1386,13 +1277,9 @@ exports.verifyKhaltiPayment = async (req, res) => {
 			const saveOptions = useTransaction ? { session } : {};
 			const updatedBooking = await booking.save(saveOptions);
 
-
-
-			// 2. Cancel all competing bookings
 			if (booking.competingBookings && booking.competingBookings.length > 0) {
 				const competingBookingIds = booking.competingBookings.map((b) => b._id);
 
-				// Update all competing bookings to mark them as cancelled
 				const updateOptions = useTransaction ? { session } : {};
 				await Booking.updateMany(
 					{ _id: { $in: competingBookingIds } },
@@ -1406,7 +1293,6 @@ exports.verifyKhaltiPayment = async (req, res) => {
 					updateOptions
 				);
 
-				// Send notifications to users with competing bookings
 				const notificationPromises = booking.competingBookings.map(
 					(competing) => {
 						const notificationController = getNotificationController(req);
@@ -1428,7 +1314,7 @@ exports.verifyKhaltiPayment = async (req, res) => {
 									"Failed to send notification for competing booking:",
 									err
 								);
-								return null; // Don't fail the whole operation if one notification fails
+								return null;
 							});
 					}
 				);
@@ -1436,7 +1322,6 @@ exports.verifyKhaltiPayment = async (req, res) => {
 				await Promise.all(notificationPromises);
 			}
 
-			// 3. Check if payment already exists to prevent duplicates
 			const Payment = require("../models/Payment");
 			const existingPayment = await Payment.findOne({
 				booking: booking._id,
@@ -1446,7 +1331,6 @@ exports.verifyKhaltiPayment = async (req, res) => {
 
 			let transaction;
 			if (!existingPayment) {
-				// Only create a new payment record if one doesn't already exist
 				transaction = new Payment({
 					user: booking.user._id,
 					booking: booking._id,
@@ -1468,11 +1352,9 @@ exports.verifyKhaltiPayment = async (req, res) => {
 				transaction = existingPayment;
 			}
 
-			// 4. Send success notifications
 			const notificationController = getNotificationController(req);
 			await Promise.all(
 				[
-					// Notify user
 					notificationController
 						.createNotification({
 							user: booking.user._id,
@@ -1493,7 +1375,7 @@ exports.verifyKhaltiPayment = async (req, res) => {
 							);
 							return null;
 						}),
-					// Notify futsal owner
+
 					notificationController
 						.createNotification({
 							user: booking.futsal.owner,
@@ -1518,7 +1400,6 @@ exports.verifyKhaltiPayment = async (req, res) => {
 				].filter((p) => p !== null)
 			);
 
-			// Only commit if we're using transactions
 			if (useTransaction) {
 				await session.commitTransaction();
 				session.endSession();
@@ -1533,7 +1414,6 @@ exports.verifyKhaltiPayment = async (req, res) => {
 				redirectUrl: `/bookings/${booking._id}?payment=success`,
 			});
 		} else {
-			// Payment failed
 			if (useTransaction) {
 				await session.abortTransaction();
 				session.endSession();
@@ -1560,7 +1440,6 @@ exports.verifyKhaltiPayment = async (req, res) => {
 		});
 
 		if (useTransaction && session && session.inTransaction()) {
-
 			await session.abortTransaction();
 			session.endSession();
 		} else if (session) {
@@ -1574,7 +1453,6 @@ exports.verifyKhaltiPayment = async (req, res) => {
 	}
 };
 
-// GET /api/bookings/bulk/verify-payment?pidx=... - Verify Khalti payment for bulk bookings
 exports.verifyBulkKhaltiPayment = async (req, res) => {
 	const { pidx } = req.query;
 	if (!pidx) {
@@ -1593,7 +1471,6 @@ exports.verifyBulkKhaltiPayment = async (req, res) => {
 
 		const results = [];
 		for (const booking of bookings) {
-			// 1. Mark booking as paid/confirmed
 			booking.paymentStatus = "paid";
 			booking.status = "confirmed";
 			booking.isPaid = true;
@@ -1602,7 +1479,6 @@ exports.verifyBulkKhaltiPayment = async (req, res) => {
 			booking.paymentDetails.paymentDate = new Date();
 			await booking.save();
 
-			// 2. Create Payment record if not exists
 			let payment = await Payment.findOne({
 				booking: booking._id,
 				transactionId: pidx,
@@ -1622,7 +1498,6 @@ exports.verifyBulkKhaltiPayment = async (req, res) => {
 				});
 			}
 
-			// 3. Send notifications
 			try {
 				await notificationController.createNotification({
 					user: booking.user,
@@ -1664,106 +1539,114 @@ exports.verifyBulkKhaltiPayment = async (req, res) => {
 			results,
 		});
 	} catch (err) {
+		res.status(500).json({
+			error: "An error occurred while verifying bulk payment",
+			details: err.message,
+		});
+	}
+};
+
+exports.listPartialBookings = async (req, res) => {
+	try {
+		const { lng, lat, radius = 10 } = req.query;
+
+		const now = new Date();
+		const startOfToday = new Date(now);
+		startOfToday.setHours(0, 0, 0, 0);
+
+		const baseQuery = {
+			bookingType: "partial",
+			status: { $ne: "cancelled" },
+			$or: [
+				{ date: { $gt: now } },
+
+				{
+					date: { $gte: startOfToday, $lte: now },
+					$expr: {
+						$gt: [
+							{
+								$dateFromString: {
+									dateString: {
+										$concat: [
+											{
+												$substr: [
+													{
+														$dateToString: {
+															date: "$date",
+															format: "%Y-%m-%d",
+														},
+													},
+													0,
+													-1,
+												],
+											},
+											"T",
+											{ $ifNull: ["$endTime", "23:59"] },
+											":00.000Z",
+										],
+									},
+								},
+							},
+							now,
+						],
+					},
+				},
+			],
+		};
+
+		let query;
+
+		if (lng && lat) {
+			const coordinates = [parseFloat(lng), parseFloat(lat)];
+			const maxDistance = parseFloat(radius) * 1000;
+
+			const nearbyFutsals = await Futsal.find({
+				"location.coordinates": {
+					$near: {
+						$geometry: {
+							type: "Point",
+							coordinates: coordinates,
+						},
+						$maxDistance: maxDistance,
+					},
+				},
+			}).select("_id");
+
+			const futsalIds = nearbyFutsals.map((f) => f._id);
+
+			query = Booking.find({
+				...baseQuery,
+				futsal: { $in: futsalIds },
+			});
+		} else {
+			query = Booking.find(baseQuery);
+		}
+
+		const bookings = await query
+			.populate({
+				path: "futsal",
+				select: "name location address",
+				populate: {
+					path: "location",
+					select: "coordinates city district",
+				},
+			})
+			.populate("teamA", "name")
+			.populate("teamB", "name")
+			.sort({ createdAt: -1 });
+
+		res.json(bookings);
+	} catch (error) {
+		console.error("Error listing partial bookings:", error);
 		res
 			.status(500)
 			.json({
-				error: "An error occurred while verifying bulk payment",
-				details: err.message,
+				message: "Failed to list partial bookings",
+				error: error.message,
 			});
 	}
 };
 
-// GET /api/bookings/partial?lng=&lat=&radius= - List all partial bookings with optional location filtering
-exports.listPartialBookings = async (req, res) => {
-    try {
-        const { lng, lat, radius = 10 } = req.query;
-        
-        const now = new Date();
-        const startOfToday = new Date(now);
-        startOfToday.setHours(0, 0, 0, 0);
-        
-        // Base query for partial bookings
-        const baseQuery = {
-            bookingType: "partial",
-            status: { $ne: "cancelled" },
-            $or: [
-                // Either the date is in the future
-                { date: { $gt: now } },
-                // Or it's today but the end time is in the future
-                {
-                    date: { $gte: startOfToday, $lte: now },
-                    $expr: {
-                        $gt: [
-                            { $dateFromString: { 
-                                dateString: { $concat: [
-                                    { $substr: [{ $dateToString: { date: '$date', format: '%Y-%m-%d' } }, 0, -1] },
-                                    'T',
-                                    { $ifNull: ['$endTime', '23:59'] },
-                                    ':00.000Z'
-                                ]}
-                            }},
-                            now
-                        ]
-                    }
-                }
-            ]
-        };
-
-        let query;
-        
-        if (lng && lat) {
-            // If coordinates are provided, use geospatial query
-            const coordinates = [parseFloat(lng), parseFloat(lat)];
-            const maxDistance = parseFloat(radius) * 1000; // Convert km to meters
-            
-            // First find futsals within the radius
-            const nearbyFutsals = await Futsal.find({
-                "location.coordinates": {
-                    $near: {
-                        $geometry: {
-                            type: "Point",
-                            coordinates: coordinates
-                        },
-                        $maxDistance: maxDistance
-                    }
-                }
-            }).select('_id');
-            
-            // Get array of futsal IDs within the radius
-            const futsalIds = nearbyFutsals.map(f => f._id);
-            
-            // Find bookings for these futsals
-            query = Booking.find({
-                ...baseQuery,
-                futsal: { $in: futsalIds }
-            });
-        } else {
-            // If no coordinates, just use the base query
-            query = Booking.find(baseQuery);
-        }
-
-        // Execute the query with population and sorting
-        const bookings = await query
-            .populate({
-                path: "futsal",
-                select: "name location address",
-                populate: {
-                    path: "location",
-                    select: "coordinates city district"
-                }
-            })
-            .populate("teamA", "name")
-            .populate("teamB", "name")
-            .sort({ createdAt: -1 });
-
-        res.json(bookings);
-    } catch (error) {
-        console.error("Error listing partial bookings:", error);
-        res.status(500).json({ message: "Failed to list partial bookings", error: error.message });
-	}
-};
-
-// GET /api/bookings/futsal?futsalId=...&date=YYYY-MM-DD&limit=15&page=1
 exports.getBookingsForFutsal = async (req, res) => {
 	try {
 		const { futsalId, date, limit = 15, page = 1 } = req.query;
@@ -1771,7 +1654,7 @@ exports.getBookingsForFutsal = async (req, res) => {
 		if (!futsalId) {
 			return res.status(400).json({ message: "futsalId is required" });
 		}
-		// Determine date range
+
 		let startDate, endDate;
 		if (date) {
 			startDate = new Date(date);
@@ -1782,25 +1665,20 @@ exports.getBookingsForFutsal = async (req, res) => {
 		endDate = new Date(startDate);
 		endDate.setDate(startDate.getDate() + 1);
 
-		// Pagination
 		const skip = (parseInt(page) - 1) * parseInt(limit);
 		const query = {
 			futsal: futsalId,
 			date: { $gte: startDate, $lt: endDate },
 			status: { $nin: ["cancelled"] },
 		};
-		
 
-		
 		const bookings = await Booking.find(query)
 			.populate("user", "fullName")
 			.sort({ startTime: 1 })
 			.skip(skip)
 			.limit(parseInt(limit));
 		const total = await Booking.countDocuments(query);
-		
 
-		
 		res.json({
 			bookings,
 			total,

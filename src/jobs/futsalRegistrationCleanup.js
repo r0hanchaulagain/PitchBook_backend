@@ -99,7 +99,6 @@ async function futsalCleanupJob() {
 			queryOptions
 		);
 
-		// Send reminders for futsals expiring soon
 		for (const futsal of soonExpiring) {
 			try {
 				const owner = await User.findById(futsal.owner).session(session);

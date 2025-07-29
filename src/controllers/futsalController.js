@@ -4,7 +4,7 @@ const User = require("../models/User");
 const { isHoliday } = require("../services/holidayService");
 const Review = require("../models/Review");
 const { uploadImage, deleteImage } = require("../utils/cloudinary");
-const config = require("../config/env_config");
+const { nodeEnv } = require("../config/env_config");
 
 async function getAverageRating(futsalId) {
 	const result = await Review.aggregate([
@@ -34,7 +34,6 @@ function validateOperatingHours(operatingHours) {
 	return true;
 }
 
-// GET /api/futsals?search=&city=&district=&page=&limit=&lng=&lat=&minRating=
 exports.getFutsals = async (req, res) => {
 	const TIMEOUT_MS = 10000;
 	const timeout = setTimeout(() => {
@@ -63,7 +62,6 @@ exports.getFutsals = async (req, res) => {
 		const limit = parseInt(req.query.limit) || 15;
 		const skip = (parseInt(page) - 1) * limit;
 
-		// Build the base filter
 		const filter = { isActive: true };
 		if (search) filter.name = { $regex: search, $options: "i" };
 		if (city) filter["location.city"] = city;
@@ -173,7 +171,6 @@ exports.getFutsals = async (req, res) => {
 				);
 				const { calculateDynamicPrice } = require("../utils/pricing");
 
-				// Calculate dynamic price
 				let finalPrice = futsal.pricing?.basePrice || 0;
 				try {
 					finalPrice = await calculateDynamicPrice(futsal, {
@@ -232,13 +229,11 @@ exports.getFutsals = async (req, res) => {
 		res.status(500).json({
 			success: false,
 			error: "Server error",
-			details:
-				process.env.NODE_ENV === "development" ? error.message : undefined,
+			details: nodeEnv === "development" ? error.message : undefined,
 		});
 	}
 };
 
-// PUT /api/futsals/:id
 exports.updateFutsal = async (req, res) => {
 	try {
 		const futsal = await Futsal.findById(req.params.id);
@@ -277,7 +272,6 @@ exports.updateFutsal = async (req, res) => {
 	}
 };
 
-// DELETE /api/futsals/:id
 exports.deleteFutsal = async (req, res) => {
 	try {
 		const futsal = await Futsal.findOneAndDelete({
@@ -304,7 +298,6 @@ exports.deleteFutsal = async (req, res) => {
 	}
 };
 
-// GET /api/futsals/:id
 exports.getFutsalById = async (req, res) => {
 	try {
 		const futsal = await Futsal.findById(req.params.id);
@@ -394,7 +387,6 @@ exports.getFutsalById = async (req, res) => {
 	}
 };
 
-// POST /api/v1/futsals/register - Register futsal (for futsalOwner)
 exports.registerFutsal = async (req, res) => {
 	try {
 		const user = req.user;
@@ -474,7 +466,7 @@ exports.uploadFutsalImage = async (req, res) => {
 			return res.status(400).json({ error: "No futsalId provided" });
 		const futsal = await Futsal.findById(futsalId);
 		if (!futsal) return res.status(404).json({ error: "Futsal not found" });
-		// Upload image
+
 		const result = await uploadImage(req.file.path, `futsals/${futsalId}`);
 		futsal.images.push(result.secure_url);
 		await futsal.save();
@@ -484,7 +476,6 @@ exports.uploadFutsalImage = async (req, res) => {
 	}
 };
 
-// PUT /api/futsals/:id/update-image
 exports.updateFutsalImage = async (req, res) => {
 	try {
 		const futsalId = req.params.id;
@@ -502,7 +493,6 @@ exports.updateFutsalImage = async (req, res) => {
 	}
 };
 
-// GET /api/futsals/dashboard-summary?futsalId=...
 const getDashboardData = async (futsalId) => {
 	if (!futsalId) throw new Error("futsalId is required");
 
@@ -578,28 +568,28 @@ const getDashboardData = async (futsalId) => {
 
 	const occupancy = Math.round((bookedSlots / totalSlots) * 100);
 
-	// Get today's schedule (bookings for today)
-	const todaysSchedule = todaysBookings.map(booking => ({
-		id: booking._id,
-		startTime: booking.startTime,
-		endTime: booking.endTime,
-		customerName: booking.user?.fullName || "Unknown",
-		status: booking.status,
-		price: booking.price,
-		bookingType: booking.bookingType,
-		teamA: booking.teamA,
-		teamB: booking.teamB
-	})).sort((a, b) => a.startTime.localeCompare(b.startTime));
+	const todaysSchedule = todaysBookings
+		.map((booking) => ({
+			id: booking._id,
+			startTime: booking.startTime,
+			endTime: booking.endTime,
+			customerName: booking.user?.fullName || "Unknown",
+			status: booking.status,
+			price: booking.price,
+			bookingType: booking.bookingType,
+			teamA: booking.teamA,
+			teamB: booking.teamB,
+		}))
+		.sort((a, b) => a.startTime.localeCompare(b.startTime));
 
-	// Get recent notifications for the futsal owner
 	const Notification = require("../models/Notification");
 	const recentNotifications = await Notification.find({
 		user: futsal.owner._id,
-		futsal: futsalId
+		futsal: futsalId,
 	})
-	.sort({ createdAt: -1 })
-	.limit(5)
-	.select("message type createdAt meta");
+		.sort({ createdAt: -1 })
+		.limit(5)
+		.select("message type createdAt meta");
 
 	return {
 		currentPricing: {
@@ -650,24 +640,22 @@ const getDashboardData = async (futsalId) => {
 			},
 		},
 
-		// Today's schedule
 		todaysSchedule: {
 			bookings: todaysSchedule,
 			total: todaysSchedule.length,
-			hasBookings: todaysSchedule.length > 0
+			hasBookings: todaysSchedule.length > 0,
 		},
 
-		// Recent notifications
 		recentNotifications: {
-			notifications: recentNotifications.map(notification => ({
+			notifications: recentNotifications.map((notification) => ({
 				id: notification._id,
 				message: notification.message,
 				type: notification.type,
 				createdAt: notification.createdAt,
-				meta: notification.meta
+				meta: notification.meta,
 			})),
 			total: recentNotifications.length,
-			hasNotifications: recentNotifications.length > 0
+			hasNotifications: recentNotifications.length > 0,
 		},
 
 		futsalId: futsal._id,
@@ -697,7 +685,7 @@ exports.getDashboardSummary = async (req, res) => {
 		console.error("Error in getDashboardSummary:", error);
 		res.status(500).json({
 			message: error.message || "Error fetching dashboard data",
-			error: config.nodeEnv === "development" ? error.stack : undefined,
+			error: nodeEnv === "development" ? error.stack : undefined,
 		});
 	}
 };
@@ -752,7 +740,6 @@ exports.updatePricingRules = async (req, res) => {
 	}
 };
 
-// GET /api/futsals/:id/transactions
 exports.getFutsalTransactions = async (req, res) => {
 	try {
 		const futsalId = req.params.id;
