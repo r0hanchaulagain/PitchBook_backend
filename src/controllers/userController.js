@@ -7,6 +7,8 @@ const { sendMail } = require("../utils/email");
 const Session = require("../models/Session");
 const futsalOwnerActivationTemplate = require("../utils/emailTemplates/futsalOwnerActivation");
 const { uploadImage, deleteImage } = require("../utils/cloudinary");
+const { decryptUserData, encrypt } = require("../utils/encryption");
+const MFAService = require("../services/mfaService");
 
 const generateToken = (user) => {
 	return jwt.sign({ id: user._id, role: user.role }, config.jwtSecret, {
@@ -210,7 +212,28 @@ exports.login = async (req, res) => {
 		// Reset login attempts and lockUntil on successful login
 		user.loginAttempts = 0;
 		user.lockUntil = undefined;
+		user.lastLogin = new Date();
+
+		// Check if MFA is enabled
+		if (MFAService.isMFAConfigured(user)) {
+			// Don't complete login yet, require MFA verification
+			const mfaToken = generateToken({ id: user._id, requiresMFA: true }, '10m'); // 10 minute expiry
+			
+			res.cookie("mfaToken", mfaToken, {
+				httpOnly: true,
+				secure: config.nodeEnv === "production",
+				sameSite: "strict",
+				maxAge: 1000 * 60 * 10, // 10 minutes
+			});
+
+			return res.json({
+				requiresMFA: true,
+				message: "Please enter your authenticator code to complete login"
+			});
+		}
+
 		await user.save();
+
 		const token = generateToken(user);
 		const refreshToken = generateRefreshToken(user);
 		await Session.create({ user: user._id, token: refreshToken });
@@ -587,6 +610,275 @@ exports.deleteUser = async (req, res) => {
 		}
 		res.json({ message: "User deleted" });
 	} catch (err) {
+		res.status(500).json({ error: err.message || "Server error" });
+	}
+};
+
+// MFA Setup - Generate TOTP secret and QR code
+exports.setupMFA = async (req, res) => {
+	try {
+		const user = await User.findById(req.user.id);
+		if (!user) {
+			return res.status(404).json({ error: "User not found" });
+		}
+
+		// Generate TOTP secret
+		const mfaData = MFAService.generateTOTPSecret(user.email);
+		
+		// Generate QR code
+		const qrCodeUrl = await MFAService.generateQRCode(mfaData.otpauthUrl);
+
+		// Don't save the secret yet - wait for verification
+		res.json({
+			secret: mfaData.secret,
+			qrCodeUrl: qrCodeUrl,
+			manualEntryKey: mfaData.secret
+		});
+
+	} catch (err) {
+		res.locals.errorMessage = err.message;
+		res.status(500).json({ error: err.message || "Server error" });
+	}
+};
+
+// MFA Enable - Verify TOTP and enable MFA
+exports.enableMFA = async (req, res) => {
+	try {
+		const { secret, token } = req.body;
+		
+		if (!secret || !token) {
+			return res.status(400).json({ error: "Secret and token are required" });
+		}
+
+		const user = await User.findById(req.user.id);
+		if (!user) {
+			return res.status(404).json({ error: "User not found" });
+		}
+
+		// Verify the TOTP token with the provided secret
+		const isValid = MFAService.verifyTOTPToken(encrypt(secret), token);
+		if (!isValid) {
+			return res.status(400).json({ error: "Invalid authenticator code" });
+		}
+
+		// Save encrypted secret and enable MFA
+		user.totpSecret = encrypt(secret);
+		user.isMfaEnabled = true;
+		
+		// Generate backup codes
+		user.backupCodes = MFAService.generateBackupCodes();
+		
+		await user.save();
+
+		res.json({
+			message: "MFA enabled successfully",
+			backupCodes: user.backupCodes.map(code => code.code)
+		});
+
+	} catch (err) {
+		res.locals.errorMessage = err.message;
+		res.status(500).json({ error: err.message || "Server error" });
+	}
+};
+
+// MFA Verify - Complete login with MFA
+exports.verifyMFA = async (req, res) => {
+	try {
+		const { token, backupCode } = req.body;
+		const mfaToken = req.cookies.mfaToken;
+
+		if (!mfaToken) {
+			return res.status(400).json({ error: "MFA session expired. Please login again." });
+		}
+
+		// Verify MFA token
+		let decoded;
+		try {
+			decoded = jwt.verify(mfaToken, config.jwtSecret);
+		} catch (err) {
+			return res.status(400).json({ error: "Invalid MFA session. Please login again." });
+		}
+
+		if (!decoded.requiresMFA) {
+			return res.status(400).json({ error: "Invalid MFA session" });
+		}
+
+		const user = await User.findById(decoded.id);
+		if (!user) {
+			return res.status(404).json({ error: "User not found" });
+		}
+
+		let isValid = false;
+
+		// Verify TOTP token or backup code
+		if (token) {
+			isValid = MFAService.verifyTOTPToken(user.totpSecret, token);
+		} else if (backupCode) {
+			isValid = MFAService.verifyBackupCode(user, backupCode);
+			if (isValid) {
+				await user.save(); // Save the used backup code
+			}
+		} else {
+			return res.status(400).json({ error: "TOTP token or backup code required" });
+		}
+
+		if (!isValid) {
+			return res.status(400).json({ error: "Invalid authenticator code or backup code" });
+		}
+
+		// Complete login process
+		user.lastLogin = new Date();
+		await user.save();
+
+		const accessToken = generateToken(user);
+		const refreshToken = generateRefreshToken(user);
+		await Session.create({ user: user._id, token: refreshToken });
+
+		// Clear MFA token and set access tokens
+		res.clearCookie("mfaToken");
+		res.cookie("accessToken", accessToken, {
+			httpOnly: true,
+			secure: config.nodeEnv === "production",
+			sameSite: "strict",
+			maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
+		});
+		res.cookie("refreshToken", refreshToken, {
+			httpOnly: true,
+			secure: config.nodeEnv === "production",
+			sameSite: "strict",
+			maxAge: 1000 * 60 * 60 * 24 * 30, // 30 days
+		});
+
+		// Decrypt user data for response
+		const userData = user.toObject();
+		const { decrypt } = require("../utils/encryption");
+		const directDecrypt = (encryptedText) => {
+			try {
+				if (!encryptedText || !encryptedText.includes(':')) {
+					return encryptedText;
+				}
+				return decrypt(encryptedText);
+			} catch (error) {
+				console.error('Direct decryption failed:', error.message);
+				return encryptedText;
+			}
+		};
+
+		const decryptedUserData = {
+			...userData,
+			email: directDecrypt(userData.email),
+			phone: directDecrypt(userData.phone),
+			fullName: directDecrypt(userData.fullName)
+		};
+
+		res.json({
+			user: {
+				id: user._id,
+				email: decryptedUserData.email,
+				role: user.role,
+				phone: decryptedUserData.phone,
+				fullName: decryptedUserData.fullName,
+				profileImage: user.profileImage,
+				authProvider: user.authProvider,
+				isEmailVerified: user.isEmailVerified,
+				isMfaEnabled: user.isMfaEnabled
+			},
+		});
+
+	} catch (err) {
+		res.locals.errorMessage = err.message;
+		res.status(500).json({ error: err.message || "Server error" });
+	}
+};
+
+// MFA Disable - Disable MFA for user
+exports.disableMFA = async (req, res) => {
+	try {
+		const { password } = req.body;
+
+		if (!password) {
+			return res.status(400).json({ error: "Password is required to disable MFA" });
+		}
+
+		const user = await User.findById(req.user.id);
+		if (!user) {
+			return res.status(404).json({ error: "User not found" });
+		}
+
+		// Verify password
+		const isMatch = await user.comparePassword(password);
+		if (!isMatch) {
+			return res.status(400).json({ error: "Invalid password" });
+		}
+
+		// Disable MFA
+		MFAService.disableMFA(user);
+		await user.save();
+
+		res.json({
+			message: "MFA disabled successfully"
+		});
+
+	} catch (err) {
+		res.locals.errorMessage = err.message;
+		res.status(500).json({ error: err.message || "Server error" });
+	}
+};
+
+// MFA Status - Get MFA status for user
+exports.getMFAStatus = async (req, res) => {
+	try {
+		const user = await User.findById(req.user.id);
+		if (!user) {
+			return res.status(404).json({ error: "User not found" });
+		}
+
+		res.json({
+			isMfaEnabled: user.isMfaEnabled,
+			backupCodesRemaining: MFAService.getUnusedBackupCodesCount(user)
+		});
+
+	} catch (err) {
+		res.locals.errorMessage = err.message;
+		res.status(500).json({ error: err.message || "Server error" });
+	}
+};
+
+// Regenerate Backup Codes
+exports.regenerateBackupCodes = async (req, res) => {
+	try {
+		const { password } = req.body;
+
+		if (!password) {
+			return res.status(400).json({ error: "Password is required" });
+		}
+
+		const user = await User.findById(req.user.id);
+		if (!user) {
+			return res.status(404).json({ error: "User not found" });
+		}
+
+		if (!user.isMfaEnabled) {
+			return res.status(400).json({ error: "MFA is not enabled" });
+		}
+
+		// Verify password
+		const isMatch = await user.comparePassword(password);
+		if (!isMatch) {
+			return res.status(400).json({ error: "Invalid password" });
+		}
+
+		// Regenerate backup codes
+		const newBackupCodes = MFAService.regenerateBackupCodes(user);
+		await user.save();
+
+		res.json({
+			message: "Backup codes regenerated successfully",
+			backupCodes: newBackupCodes.map(code => code.code)
+		});
+
+	} catch (err) {
+		res.locals.errorMessage = err.message;
 		res.status(500).json({ error: err.message || "Server error" });
 	}
 };

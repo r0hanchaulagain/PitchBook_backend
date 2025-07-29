@@ -20,6 +20,10 @@ const {
 	forgotPasswordValidator,
 	resetPasswordValidator,
 	deleteUserValidator,
+	enableMFAValidator,
+	verifyMFAValidator,
+	disableMFAValidator,
+	regenerateBackupCodesValidator,
 } = require("../validators/userValidators");
 const { authenticate, authorize } = require("../middlewares/auth");
 const { verifyAltcha } = require("../middlewares/security/altcha");
@@ -126,5 +130,13 @@ router.delete(
 	removeFutsalFromFavourites
 );
 router.get("/favorites", authenticate, authorize("user"), getFavouriteFutsals);
+
+// MFA Routes
+router.get("/mfa/setup", authenticate, setupMFA);
+router.post("/mfa/enable", authenticate, enableMFAValidator, enableMFA);
+router.post("/mfa/verify", verifyMFAValidator, verifyMFA); // No auth required - uses MFA token
+router.post("/mfa/disable", authenticate, disableMFAValidator, disableMFA);
+router.get("/mfa/status", authenticate, getMFAStatus);
+router.post("/mfa/regenerate-backup-codes", authenticate, regenerateBackupCodesValidator, regenerateBackupCodes);
 
 module.exports = router;
