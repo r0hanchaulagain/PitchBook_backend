@@ -1,15 +1,12 @@
-const crypto = require('crypto');
+const crypto = require("crypto");
+const { altcha } = require("../config/env_config");
 
 module.exports = {
-	// HMAC key for challenge generation and verification
-	hmacKey: process.env.ALTCHA_HMAC_KEY || crypto.randomBytes(16).toString('hex'),
-	
-	// Maximum number for challenge complexity (default: 50,000)
-	maxNumber: parseInt(process.env.ALTCHA_MAX_NUMBER) || 50_000,
-	
-	// Challenge expiration time in milliseconds (default: 5 minutes)
-	maxChallengeAge: parseInt(process.env.ALTCHA_MAX_CHALLENGE_AGE) || 300000,
-	
-	// Algorithm for cryptographic operations
-	algorithm: process.env.ALTCHA_ALGORITHM || 'sha256'
+	hmacKey: altcha.hmac_key || crypto.randomBytes(16).toString("hex"),
+
+	maxNumber: parseInt(altcha.max_number) || 50_000,
+
+	maxChallengeAge: parseInt(altcha.max_challenge_age) || 300000,
+
+	algorithm: altcha.algorithm || "sha256",
 };
