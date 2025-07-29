@@ -34,13 +34,32 @@ class MFAService {
     }
 
     /**
-     * Verify TOTP token
+     * Verify TOTP token (for encrypted secrets from database)
      */
     static verifyTOTPToken(encryptedSecret, token, window = 2) {
         try {
             // Decrypt the secret
             const secret = decrypt(encryptedSecret);
             
+            const verified = speakeasy.totp.verify({
+                secret: secret,
+                encoding: 'base32',
+                token: token,
+                window: window // Allow 2 steps before/after current time
+            });
+
+            return verified;
+        } catch (error) {
+            console.error('TOTP verification error:', error);
+            return false;
+        }
+    }
+
+    /**
+     * Verify TOTP token (for plain text secrets during setup)
+     */
+    static verifyTOTPTokenPlain(secret, token, window = 2) {
+        try {
             const verified = speakeasy.totp.verify({
                 secret: secret,
                 encoding: 'base32',

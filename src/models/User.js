@@ -55,6 +55,7 @@ const UserSchema = new mongoose.Schema({
 	updatedAt: { type: Date, default: Date.now },
 	isActive: { type: Boolean, default: true },
 	lastLogin: { type: Date },
+	lastLogout: { type: Date },
 	resetPasswordToken: { type: String },
 	resetPasswordExpires: { type: Date },
 	// Security: Track login attempts and lockout

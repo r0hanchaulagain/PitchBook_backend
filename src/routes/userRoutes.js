@@ -1,4 +1,5 @@
 const express = require("express");
+const logger = require("../utils/logger");
 const {
 	register,
 	login,
@@ -37,6 +38,7 @@ const { authenticate, authorize } = require("../middlewares/auth");
 const { verifyAltcha } = require("../middlewares/security/altcha");
 const { passport } = require("../config/google_oauth");
 const { upload, handleMulterError } = require("../utils/multerConfig");
+const { google, frontendUrl } = require("../config/env_config");
 const router = express.Router();
 
 // Registration with ALTCHA CAPTCHA protection
@@ -54,7 +56,21 @@ router.post("/refresh-token", authenticate, refreshToken);
 router.get("/me", authenticate, getProfile);
 
 // Google OAuth Routes - Only available if configured
-if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
+if (google.clientId && google.clientSecret) {
+	// Custom error handler for OAuth failures
+	const handleOAuthError = (err, req, res, next) => {
+		logger.error("OAuth authentication error:", {
+			error: err.message,
+			stack: err.stack,
+			path: req.path,
+			query: req.query
+		});
+		
+		// Redirect to frontend with error (clean URL)
+		const errorUrl = `${frontendUrl}/auth/google-error`;
+		res.redirect(errorUrl);
+	};
+
 	router.get("/google", passport.authenticate("google", { scope: ["profile", "email"] }));
 
 	router.get("/google/callback", 
@@ -62,6 +78,7 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
 			failureRedirect: "/login",
 			session: false 
 		}),
+		handleOAuthError,
 		async (req, res) => {
 			try {
 				// Generate JWT token for the authenticated user
@@ -74,22 +91,30 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
 					{ expiresIn: "7d" }
 				);
 
-				// Redirect to frontend with token
-				const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
-				const redirectUrl = `${frontendUrl}/auth/google-success?token=${token}&user=${encodeURIComponent(JSON.stringify({
-					id: req.user._id,
-					email: req.user.email,
-					role: req.user.role,
-					phone: req.user.phone,
-					fullName: req.user.fullName,
-					profileImage: req.user.profileImage,
-					authProvider: req.user.authProvider
-				}))}`;
+				// Set the token as an HTTP-only cookie
+				res.cookie('accessToken', token, {
+					httpOnly: true,
+					secure: process.env.NODE_ENV === 'production',
+					sameSite: 'lax',
+					maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+				});
+
+				// Redirect to frontend success page (without token in URL)
+				const redirectUrl = `${frontendUrl}/auth/google-success`;
 				
 				res.redirect(redirectUrl);
 			} catch (error) {
 				console.error("Google OAuth callback error:", error);
-				const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
+				// Log more details for debugging
+				logger.error("Google OAuth callback error details:", {
+					error: error.message,
+					stack: error.stack,
+					user: req.user ? req.user._id : 'no user',
+					config: {
+						hasJwtSecret: !!config.jwtSecret,
+						hasFrontendUrl: !!frontendUrl
+					}
+				});
 				res.redirect(`${frontendUrl}/auth/google-error`);
 			}
 		}
