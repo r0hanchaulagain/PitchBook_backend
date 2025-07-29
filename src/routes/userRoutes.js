@@ -13,6 +13,14 @@ const {
 	addFutsalToFavourites,
 	removeFutsalFromFavourites,
 	getFavouriteFutsals,
+	verifyEmail,
+	resendEmailVerification,
+	setupMFA,
+	enableMFA,
+	verifyMFA,
+	disableMFA,
+	getMFAStatus,
+	regenerateBackupCodes,
 } = require("../controllers/userController");
 const {
 	registerValidator,
