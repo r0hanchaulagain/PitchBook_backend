@@ -7,5 +7,4 @@ exports.registerFutsalOwnerValidator = [
 	body("location.address").notEmpty(),
 	body("contactInfo.phone").notEmpty(),
 	body("pricing.basePrice").isNumeric(),
-	// add more validations as needed
 ];

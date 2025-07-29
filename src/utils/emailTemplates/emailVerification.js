@@ -88,4 +88,4 @@ const emailVerificationTemplate = ({ fullName, verificationLink }) => {
 	`;
 };
 
-module.exports = emailVerificationTemplate; 
+module.exports = emailVerificationTemplate;
