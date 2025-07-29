@@ -29,8 +29,26 @@ exports.register = async (req, res) => {
 	}
 	try {
 		const { email, password, role, phone, fullName } = req.body;
-		const userExists = await User.findOne({ $or: [{ email }, { phone }] });
-		if (userExists) {
+		
+		// Check if user exists using encryption-aware method
+		const userExists = await User.findByEmail(email);
+		
+		// Also check by phone if provided
+		let phoneUser = null;
+		if (phone) {
+			phoneUser = await User.findByPhone(phone);
+		}
+
+		if (userExists || phoneUser) {
+			// Check if user exists with Google OAuth
+			if (userExists && (userExists.googleEmail === email || userExists.googleId)) {
+				res.locals.errorMessage = "An account with this email already exists via Google. Please use 'Continue with Google' to sign in.";
+				return res.status(400).json({ 
+					error: "An account with this email already exists via Google. Please use 'Continue with Google' to sign in.",
+					authProvider: "google"
+				});
+			}
+			
 			res.locals.errorMessage = "User already exists";
 			return res.status(400).json({ error: "User already exists" });
 		}
@@ -43,6 +61,7 @@ exports.register = async (req, res) => {
 		if (role === "futsalOwner") {
 			userObj.isActiveOwner = false;
 		}
+		
 		const user = await User.create(userObj);
 		const token = generateToken(user);
 
@@ -57,14 +76,68 @@ exports.register = async (req, res) => {
 		}
 
 		res.status(201).json({
+			message: "Registration successful! Please check your email to verify your account.",
 			user: {
 				id: user._id,
 				email: user.email,
 				role: user.role,
 				phone: user.phone,
 				fullName: user.fullName,
-			},
-			token,
+				profileImage: user.profileImage,
+				authProvider: user.authProvider,
+				isEmailVerified: user.isEmailVerified
+			}
+		});
+	} catch (err) {
+		res.locals.errorMessage = err.message;
+		res.status(500).json({ error: err.message || "Server error" });
+	}
+};
+
+// Email verification endpoint
+exports.verifyEmail = async (req, res) => {
+	try {
+		const { token, email } = req.query;
+		
+		if (!token || !email) {
+			return res.status(400).json({ error: "Token and email are required" });
+		}
+
+		const user = await User.findByEmail(email);
+		if (!user) {
+			return res.status(404).json({ error: "User not found" });
+		}
+
+		if (user.isEmailVerified) {
+			return res.status(400).json({ error: "Email is already verified" });
+		}
+
+		if (user.emailVerificationToken !== token) {
+			return res.status(400).json({ error: "Invalid verification token" });
+		}
+
+		if (user.emailVerificationExpires < new Date()) {
+			return res.status(400).json({ error: "Verification token has expired" });
+		}
+
+		// Verify the email
+		user.isEmailVerified = true;
+		user.emailVerificationToken = undefined;
+		user.emailVerificationExpires = undefined;
+		await user.save();
+
+		res.json({ 
+			message: "Email verified successfully! You can now log in to your account.",
+			user: {
+				id: user._id,
+				email: user.email,
+				role: user.role,
+				phone: user.phone,
+				fullName: user.fullName,
+				profileImage: user.profileImage,
+				authProvider: user.authProvider,
+				isEmailVerified: user.isEmailVerified
+			}
 		});
 	} catch (err) {
 		res.locals.errorMessage = err.message;
@@ -86,6 +159,33 @@ exports.login = async (req, res) => {
 			res.locals.errorMessage = "No user registered";
 			return res.status(400).json({ error: "No user registered" });
 		}
+
+		// Check if email is verified for local users
+		if (user.authProvider === "local" && !user.isEmailVerified) {
+			return res.status(400).json({ 
+				error: "Please verify your email address before logging in. Check your inbox for the verification link.",
+				needsVerification: true
+			});
+		}
+
+		// Check if password is expired
+		if (user.isPasswordExpired()) {
+			return res.status(400).json({
+				error: "Your password has expired. Please reset your password to continue.",
+				passwordExpired: true,
+				resetUrl: `${config.frontendUrl}/forgot-password`
+			});
+		}
+
+		// Check if user is OAuth-only (no password)
+		if (user.isOAuthUser() && !user.canUsePassword()) {
+			res.locals.errorMessage = "This account was created with Google. Please use 'Continue with Google' to sign in.";
+			return res.status(400).json({ 
+				error: "This account was created with Google. Please use 'Continue with Google' to sign in.",
+				authProvider: "google"
+			});
+		}
+
 		// Check if account is locked
 		if (user.lockUntil && user.lockUntil > Date.now()) {
 			return res.status(423).json({
@@ -93,6 +193,7 @@ exports.login = async (req, res) => {
 					"Account is locked due to too many failed login attempts. Try again later.",
 			});
 		}
+
 		const isMatch = await user.comparePassword(password);
 		if (!isMatch) {
 			user.loginAttempts = (user.loginAttempts || 0) + 1;
@@ -113,6 +214,7 @@ exports.login = async (req, res) => {
 		const token = generateToken(user);
 		const refreshToken = generateRefreshToken(user);
 		await Session.create({ user: user._id, token: refreshToken });
+
 		// Set cookies
 		res.cookie("accessToken", token, {
 			httpOnly: true,
@@ -126,13 +228,41 @@ exports.login = async (req, res) => {
 			sameSite: "strict",
 			maxAge: 1000 * 60 * 60 * 24 * 30, // 30 days
 		});
+
+		// Explicitly decrypt user data for response using direct decryption
+		const userData = user.toObject();
+		
+		// Direct decryption function to bypass middleware issues
+		const { decrypt } = require("../utils/encryption");
+		const directDecrypt = (encryptedText) => {
+			try {
+				if (!encryptedText || !encryptedText.includes(':')) {
+					return encryptedText;
+				}
+				return decrypt(encryptedText);
+			} catch (error) {
+				console.error('Direct decryption failed:', error.message);
+				return encryptedText;
+			}
+		};
+
+		const decryptedUserData = {
+			...userData,
+			email: directDecrypt(userData.email),
+			phone: directDecrypt(userData.phone),
+			fullName: directDecrypt(userData.fullName)
+		};
+
 		res.json({
 			user: {
 				id: user._id,
-				email: user.email,
+				email: decryptedUserData.email,
 				role: user.role,
-				phone: user.phone,
-				fullName: user.fullName,
+				phone: decryptedUserData.phone,
+				fullName: decryptedUserData.fullName,
+				profileImage: user.profileImage,
+				authProvider: user.authProvider,
+				isEmailVerified: user.isEmailVerified
 			},
 		});
 	} catch (err) {
@@ -148,26 +278,34 @@ exports.getProfile = async (req, res) => {
 exports.forgotPassword = async (req, res) => {
 	const { email } = req.body;
 	try {
-		const user = await User.findOne({ email });
+		// Use encryption-aware method to find user
+		const user = await User.findByEmail(email);
 		if (!user) {
-			res.locals.errorMessage =
-				"If that email is registered, a reset link has been sent.";
-			return res.status(200).json({
-				message: "If that email is registered, a reset link has been sent.",
-			});
+			res.locals.errorMessage = "No user registered with this email";
+			return res.status(400).json({ error: "No user registered with this email" });
 		}
-		// Generate token
-		const token = crypto.randomBytes(32).toString("hex");
-		user.resetPasswordToken = token;
-		user.resetPasswordExpires = Date.now() + 1000 * 60 * 60; // 1 hour
+
+		// Generate reset token
+		const resetToken = crypto.randomBytes(32).toString("hex");
+		user.resetPasswordToken = resetToken;
+		user.resetPasswordExpires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
 		await user.save();
-		// Send email
-		const resetUrl = `${config.frontendUrl}/reset-password?token=${token}&email=${encodeURIComponent(email)}`;
-		const html = `<p>You requested a password reset for your Futsal account.</p><p><a href="${resetUrl}">Click here to reset your password</a></p><p>If you did not request this, please ignore this email.</p>`;
-		await sendMail({ to: email, subject: "Password Reset", html });
-		res.status(200).json({
-			message: "If that email is registered, a reset link has been sent.",
+
+		// Send reset email
+		const resetUrl = `${config.frontendUrl}/reset-password?token=${resetToken}&email=${email}`;
+		const html = `
+			<p>You requested a password reset.</p>
+			<p>Click this <a href="${resetUrl}">link</a> to reset your password.</p>
+			<p>If you didn't request this, please ignore this email.</p>
+			<p>This link will expire in 1 hour.</p>
+		`;
+		await sendMail({
+			to: email,
+			subject: "Password Reset Request",
+			html,
 		});
+
+		res.json({ message: "Password reset email sent" });
 	} catch (err) {
 		res.locals.errorMessage = err.message;
 		res.status(500).json({ error: err.message || "Server error" });
@@ -186,6 +324,17 @@ exports.resetPassword = async (req, res) => {
 			res.locals.errorMessage = "Invalid or expired token";
 			return res.status(400).json({ error: "Invalid or expired token" });
 		}
+
+		// Check if password was used recently
+		const isReused = await user.isPasswordReused(password);
+		if (isReused) {
+			res.locals.errorMessage = "Cannot reuse recent passwords. Please choose a different password.";
+			return res.status(400).json({ 
+				error: "Cannot reuse recent passwords. Please choose a different password.",
+				passwordReused: true
+			});
+		}
+
 		user.password = password;
 		user.resetPasswordToken = undefined;
 		user.resetPasswordExpires = undefined;

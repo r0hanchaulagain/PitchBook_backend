@@ -48,7 +48,7 @@ const verifyChallenge = async (altchaPayload) => {
 			message: "Verification failed",
 			error: "VERIFICATION_ERROR"
 		};
-	}
+			}
 };
 
 const verifyWithSpamFilter = async (altchaPayload, formData) => {

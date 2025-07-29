@@ -42,7 +42,7 @@ async function fetchHolidaysForBSYear(bsYear) {
 			return holidayCache[bsYear].holidays;
 		}
 
-		console.log(`Fetching holidays for BS ${bsYear} from GitHub...`);
+
 		const response = await axios.get(
 			`https://raw.githubusercontent.com/Saral-Patro/data/main/${bsYear}.json`,
 			{

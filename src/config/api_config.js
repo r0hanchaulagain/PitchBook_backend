@@ -11,6 +11,7 @@ const { setupSimpleCSRF } = require("../middlewares/security/csrf");
 const { setupSecurityHeaders } = require("../middlewares/security/headers");
 const { rateLimiterConfig } = require("../middlewares/security/rate_limit");
 const { verifyAltcha } = require("../middlewares/security/altcha");
+const { passport } = require("./google_oauth");
 
 function setupMiddlewares(app) {
 	app.set("trust proxy", 1);
@@ -20,7 +21,7 @@ function setupMiddlewares(app) {
 	app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 	app.use(cookieParser(process.env.COOKIE_SECRET));
 
-	// Session middleware - Required for CSRF protection
+	// Session middleware - Required for CSRF protection and Passport
 	app.use(session({
 		secret: process.env.SESSION_SECRET || process.env.COOKIE_SECRET,
 		name: 'psifi.session',
@@ -35,6 +36,10 @@ function setupMiddlewares(app) {
 			domain: process.env.NODE_ENV === 'production' ? process.env.COOKIE_DOMAIN : undefined
 		},
 	}));
+
+	// Initialize Passport middleware
+	app.use(passport.initialize());
+	app.use(passport.session());
 
 	// Setup security headers
 	const { helmetConfig, customHeaders, corsConfig } = setupSecurityHeaders();
