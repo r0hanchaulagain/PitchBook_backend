@@ -8,7 +8,4 @@ exports.createFutsalValidator = [
 	body("pricing.basePrice").isNumeric(),
 ];
 
-exports.updateFutsalValidator = [
-	body("name").optional().notEmpty(),
-	// add more fields as needed
-];
+exports.updateFutsalValidator = [body("name").optional().notEmpty()];
