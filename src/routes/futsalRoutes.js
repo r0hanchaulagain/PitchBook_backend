@@ -38,7 +38,6 @@ router.post(
 	futsalController.registerFutsal
 );
 
-
 router.post(
 	"/upload-image",
 	authenticate,
