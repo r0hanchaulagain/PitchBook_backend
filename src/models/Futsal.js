@@ -23,7 +23,7 @@ const FutsalSchema = new mongoose.Schema({
 		modifiers: {
 			timeOfDay: {
 				enabled: { type: Boolean, default: false },
-				morning: { type: Number, default: 0 }, // e.g. 0.05 for 5%
+				morning: { type: Number, default: 0 },
 				midday: { type: Number, default: 0 },
 				evening: { type: Number, default: 0 },
 			},
@@ -47,7 +47,7 @@ const FutsalSchema = new mongoose.Schema({
 		city: String,
 		coordinates: {
 			type: { type: String, enum: ["Point"], default: "Point" },
-			coordinates: { type: [Number], required: true }, // [longitude, latitude]
+			coordinates: { type: [Number], required: true },
 		},
 	},
 	contactInfo: {
@@ -72,7 +72,6 @@ const FutsalSchema = new mongoose.Schema({
 	isActive: { type: Boolean, default: false },
 });
 
-// Add 2dsphere index for geospatial queries
 FutsalSchema.index({ "location.coordinates": "2dsphere" });
 
 module.exports = mongoose.model("Futsal", FutsalSchema);

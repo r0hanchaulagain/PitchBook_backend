@@ -44,7 +44,6 @@ const transactionSchema = new mongoose.Schema({
 	},
 });
 
-// Update the updatedAt field before saving
 transactionSchema.pre("save", function (next) {
 	this.updatedAt = new Date();
 	next();

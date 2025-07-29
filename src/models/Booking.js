@@ -1,11 +1,11 @@
 const mongoose = require("mongoose");
 
 const teamBUserSchema = new mongoose.Schema({
-    user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-    name: { type: String },
-    email: { type: String },
-    phone: { type: String },
-    joinedAt: { type: Date }
+	user: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+	name: { type: String },
+	email: { type: String },
+	phone: { type: String },
+	joinedAt: { type: Date },
 });
 
 const BookingSchema = new mongoose.Schema({
@@ -41,7 +41,6 @@ const BookingSchema = new mongoose.Schema({
 		paymentMethod: { type: String, enum: ["khalti", "cash"] },
 		paymentDate: { type: Date },
 		pidx: { type: String, optional: true },
-		// Additional payment details can be added here
 	},
 	transaction: {
 		type: mongoose.Schema.Types.ObjectId,
@@ -59,7 +58,6 @@ const BookingSchema = new mongoose.Schema({
 	updatedAt: { type: Date, default: Date.now },
 });
 
-// Update the updatedAt field before saving
 BookingSchema.pre("save", function (next) {
 	this.updatedAt = new Date();
 	next();

@@ -28,7 +28,6 @@ const PaymentSchema = new mongoose.Schema({
 	updatedAt: { type: Date, default: Date.now },
 });
 
-// Update the updatedAt field before saving
 PaymentSchema.pre("save", function (next) {
 	this.updatedAt = new Date();
 	next();
