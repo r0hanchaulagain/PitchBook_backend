@@ -10,7 +10,6 @@ function createMongoSanitizer(options = {}) {
 		logger = console,
 	} = options;
 
-	// Check if a key should be sanitized
 	const shouldSanitize = (key) => {
 		if (typeof key !== "string") return false;
 		return (
@@ -18,21 +17,17 @@ function createMongoSanitizer(options = {}) {
 		);
 	};
 
-	// Recursively sanitize an object or array
 	const sanitizeObject = (obj, path = "") => {
-		// Handle edge cases
 		if (obj === null || obj === undefined) return obj;
 		if (typeof obj !== "object") return obj;
 		if (obj instanceof Date) return obj;
 
-		// Handle arrays
 		if (Array.isArray(obj)) {
 			return obj.map((item, index) =>
 				sanitizeObject(item, `${path}[${index}]`)
 			);
 		}
 
-		// Handle objects
 		const sanitized = {};
 		let hasSanitized = false;
 
@@ -45,7 +40,6 @@ function createMongoSanitizer(options = {}) {
 					);
 				}
 
-				// Add replacement if specified
 				if (replaceWith !== null) {
 					sanitized[replaceWith] = sanitizeObject(
 						value,
@@ -53,7 +47,6 @@ function createMongoSanitizer(options = {}) {
 					);
 				}
 			} else {
-				// Recursively sanitize nested objects
 				sanitized[key] = sanitizeObject(value, `${path}.${key}`);
 			}
 		}
@@ -61,20 +54,16 @@ function createMongoSanitizer(options = {}) {
 		return sanitized;
 	};
 
-	// Return the actual middleware function
 	return function mongoSanitize(req, res, next) {
 		try {
-			// Sanitize req.body if it exists and sanitizeBody is true
 			if (sanitizeBody && req.body) {
 				req.body = sanitizeObject(req.body, "body");
 			}
 
-			// Sanitize req.query
 			if (sanitizeQuery && req.query) {
 				req.query = sanitizeObject(req.query, "query");
 			}
 
-			// Sanitize req.params
 			if (sanitizeParams && req.params) {
 				req.params = sanitizeObject(req.params, "params");
 			}
